@@ -164,14 +164,8 @@ def _langfuse():
     )
     if not lf.auth_check():
         raise RuntimeError("auth_check failed — wrong keys or wrong host region")
-    # SDK v3+ uses spans; v2 used lf.trace(). Support both.
-    if hasattr(lf, "start_as_current_span"):
-        with lf.start_as_current_span(name="smoke-test"):
-            pass
-    else:
-        lf.trace(name="smoke-test")
     lf.flush()
-    return "auth ok, trace 'smoke-test' sent"
+    return "auth ok"
 
 
 # ---------- Report ----------
