@@ -18,8 +18,8 @@ citations pointing at real filing chunks.
 - Azure resources already exist and are reachable with keyless auth
   (`DefaultAzureCredential`). See `scripts/smoke_test.py` for working patterns
   for every client — reuse them rather than inventing new ones.
-- Source data: SEC 10-K / 10-Q PDFs already uploaded to the blob container
-  `raw-filings` (Amazon, Alphabet and others).
+- Source data: SEC 10-K annual reports (Amazon, Alphabet, Microsoft) as PDFs
+  in the blob container `raw-filings`. Phase 1 is annual-only.
 - Env vars are in `.env` (gitignored) and mirrored in `.env.example`.
 
 ## Hard constraints
@@ -80,18 +80,21 @@ citations pointing at real filing chunks.
 | `content_vector` | Collection(Single) | vector field, dims from the embedding model, HNSW profile |
 | `company` | String | filterable, facetable |
 | `ticker` | String | filterable |
-| `doc_type` | String | filterable — `10-K` / `10-Q` |
+| `doc_type` | String | filterable — `10-K` |
 | `period` | String | filterable, sortable — e.g. `2025-12-31` |
 | `source_blob` | String | retrievable |
 | `chunk_no` | Int32 | retrievable |
+| `page` | Int32 | filterable — 1-based PDF page, for citations |
 
 Create it with a vector search profile using HNSW. Make index creation
 idempotent: drop and recreate when `--recreate` is passed.
 
 **Parsing** (`ingestion/parse.py`): stream each PDF from blob storage and
 extract text with `pypdf`. Filenames follow
-`{COMPANY} {DOC_TYPE} {PERIOD}.pdf` — parse metadata from the name, but
-tolerate mismatches by falling back to `unknown`. Keep a page number with each
+`{COMPANY} {DOC_TYPE} {PERIOD}.pdf` — parse metadata from the name. When the
+name doesn't match, take the issuer from ticker/name aliases in the filename and
+the form type and fiscal-year end from the cover page; anything still missing
+falls back to `unknown`. Keep a page number with each
 text block so citations can reference it.
 
 **Chunking** (`ingestion/chunk.py`): `RecursiveCharacterTextSplitter`, roughly
@@ -121,6 +124,7 @@ class Citation(BaseModel):
     period: str
     source_blob: str
     chunk_no: int
+    page: int
     quote: str          # short supporting snippet, <= 25 words
 
 class ReportSection(BaseModel):
@@ -144,7 +148,9 @@ class ResearchState(BaseModel):
 **Nodes** (`app/graph/nodes.py`):
 
 - `retrieve`: embed the query, run a vector search against `filings-v1`
-  (top-k 8, filter by company when provided), store hits in `state.retrieved`.
+  (top-k 8, filter by company when provided; with several companies, top-k 8
+  per company so a comparison can't lose a side), store hits in
+  `state.retrieved`.
 - `write`: pass the query and the numbered hits to the chat model and request
   a `Report` as structured output. Prompt rules: use only the provided context,
   never invent numbers, every section must carry at least one citation, and say
@@ -157,7 +163,7 @@ class ResearchState(BaseModel):
 and use `max_completion_tokens`. Keep parameters minimal, as in the smoke test.
 
 **Verify:** `uv run python -m app.graph.build "How did Amazon's operating
-income change in the most recent quarter?"` prints a validated `Report`.
+income change in fiscal 2025?"` prints a validated `Report`.
 
 ---
 
@@ -223,6 +229,7 @@ Commit with a tag `phase-1-thin-slice`.
 
 ## Out of scope for Phase 1 (do not build)
 
-Checkpointing, human-in-the-loop interrupts, the Critic node, MCP server,
+Quarterly filings (10-Q), checkpointing, human-in-the-loop interrupts, the
+Critic node, MCP server,
 hybrid search, semantic ranker, memory, RAGAS evals, MLflow, Airflow, Langfuse
 instrumentation, Entra auth, RBAC, Kubernetes, Azure deployment, and any UI.

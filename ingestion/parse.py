@@ -12,7 +12,7 @@ UNKNOWN = "unknown"
 
 # Filename: "{COMPANY} {DOC_TYPE} {PERIOD}.pdf", e.g. "AMAZON.COM, INC. 10-K 2025-12-31.pdf"
 _FILENAME_RE = re.compile(
-    r"^(?P<company>.+?)\s+(?P<doc_type>10-K|10-Q)\s+(?P<period>\d{4}-\d{2}-\d{2})\.pdf$",
+    r"^(?P<company>.+?)\s+(?P<doc_type>10-K)\s+(?P<period>\d{4}-\d{2}-\d{2})\.pdf$",
     re.IGNORECASE,
 )
 
@@ -28,9 +28,9 @@ _KNOWN_ISSUERS: list[tuple[str, str, tuple[str, ...]]] = [
 ]
 
 # Cover-page fallbacks for files that don't follow the naming convention.
-_COVER_FORM_RE = re.compile(r"FORM\s+(10-K|10-Q)", re.IGNORECASE)
+_COVER_FORM_RE = re.compile(r"FORM\s+(10-K)", re.IGNORECASE)
 _COVER_PERIOD_RE = re.compile(
-    r"(?:fiscal year|quarterly period) ended\s+([A-Z][a-z]+ \d{1,2}, \d{4})",
+    r"fiscal year ended\s+([A-Z][a-z]+ \d{1,2}, \d{4})",
     re.IGNORECASE,
 )
 
