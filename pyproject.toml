@@ -6,10 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.14.3",
+    "arq>=0.28.0",
+    "asyncpg>=0.31.0",
     "azure-identity>=1.25.3",
     "azure-keyvault-secrets>=4.11.2",
     "azure-search-documents>=12.0.0",
     "azure-storage-blob>=12.30.3",
+    "fastapi>=0.141.1",
     "langchain-text-splitters>=1.1.2",
     "langfuse>=4.15.4",
     "langgraph>=1.2.12",
@@ -17,11 +20,21 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pypdf>=6.19.0",
     "python-dotenv>=1.2.3",
+    "sqlalchemy[asyncio]>=2.0.54",
     "tenacity>=9.1.4",
+    "uvicorn[standard]>=0.53.0",
 ]
 
 [dependency-groups]
 dev = [
+    "aiosqlite>=0.22.1",
     "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.16.8",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

@@ -5,13 +5,13 @@ uv run python -m app.graph.build "question" [--companies Amazon Alphabet]
 
 import argparse
 import asyncio
-import logging
 
 from langgraph.graph import END, START, StateGraph
 
 from app.azure_clients import close_async_clients
 from app.graph.nodes import retrieve, write
 from app.graph.state import ResearchState
+from app.logging_setup import configure_logging
 
 builder = StateGraph(ResearchState)
 builder.add_node("retrieve", retrieve)
@@ -38,9 +38,7 @@ def main() -> None:
     parser.add_argument("query")
     parser.add_argument("--companies", nargs="*", default=[])
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
-    for noisy in ("azure", "httpx", "httpx2", "openai"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    configure_logging()
     asyncio.run(_run(args.query, args.companies))
 
 

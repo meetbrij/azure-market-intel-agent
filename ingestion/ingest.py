@@ -27,6 +27,7 @@ from app.azure_clients import (
     get_search_index_client,
 )
 from app.config import get_settings
+from app.logging_setup import configure_logging
 from ingestion.chunk import chunk_pages
 from ingestion.index_schema import build_index
 from ingestion.parse import UNKNOWN, extract_pages, fill_from_cover, parse_filename
@@ -206,11 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         "--recreate", action="store_true", help="drop and recreate the index"
     )
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s"
-    )
-    for noisy in ("azure", "httpx", "httpx2", "openai"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    configure_logging()
 
     ensure_index(args.recreate)
     blobs = [

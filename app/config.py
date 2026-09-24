@@ -23,6 +23,10 @@ class Settings(BaseSettings):
 
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # Local defaults; docker-compose overrides the hostnames.
+    database_url: str = "postgresql+asyncpg://mia:mia@localhost:5432/mia"
+    redis_url: str = "redis://localhost:6379/0"
+
     chunk_size: int = 1000
     chunk_overlap: int = 150
     embed_batch_size: int = 64
