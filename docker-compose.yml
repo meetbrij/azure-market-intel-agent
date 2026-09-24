@@ -1,0 +1,80 @@
+# Local stack: api + worker (same image) + Postgres + Redis.
+#   docker compose up -d --build
+# Azure auth reuses your host `az login` via a read-only ~/.azure mount.
+# Local development only — Phase 4 replaces this with a managed identity.
+
+x-app: &app
+  build:
+    context: .
+    target: local
+  image: azure-market-intel-agent:local
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://mia:mia@postgres:5432/mia
+    REDIS_URL: redis://redis:6379/0
+    # Use only the Azure CLI login (skips the managed-identity/IMDS probe).
+    # Phase 4: ManagedIdentityCredential.
+    AZURE_TOKEN_CREDENTIALS: AzureCliCredential
+  volumes:
+    - ~/.azure:/mnt/host-azure:ro
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    <<: *app
+    command: ["arq", "app.jobs.worker.WorkerSettings"]
+    depends_on:
+      # The api creates the jobs table on startup.
+      api:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mia
+      POSTGRES_PASSWORD: mia
+      POSTGRES_DB: mia
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mia -d mia"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

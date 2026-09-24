@@ -1,0 +1,20 @@
+# Secrets and local state never enter the build context.
+.env
+.env.*
+!.env.example
+.azure
+.git
+.venv
+.DS_Store
+**/__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Not needed at runtime (ingestion runs from the host).
+docs
+infra
+ingestion
+scripts
+tests
+main.py

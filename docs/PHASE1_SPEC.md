@@ -210,6 +210,13 @@ differing only by command.
 the CLI login locally — note in the README that Phase 4 replaces this with a
 managed identity.
 
+*Implementation note:* `AzureCliCredential` shells out to the `az` binary and
+`az` rewrites its token cache on refresh, so a read-only mount alone doesn't
+work. The Dockerfile has a `local` target (runtime + Azure CLI) used by
+compose, whose entrypoint copies the mount into a writable config dir; compose
+pins `AZURE_TOKEN_CREDENTIALS=AzureCliCredential`. The slim `runtime` target is
+what Phase 4 deploys.
+
 **README:** a short architecture diagram (Mermaid), setup steps, the ingestion
 command, and a copy-pasteable curl demo showing submit, poll, and the resulting
 report.
