@@ -13,10 +13,10 @@ from typing import Any
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from openai import RateLimitError
 from tenacity import (
-    before_sleep_log,
+    RetryCallState,
     retry,
     retry_if_exception_type,
-    stop_after_attempt,
+    stop_after_delay,
     wait_random_exponential,
 )
 
@@ -29,7 +29,7 @@ from app.azure_clients import (
 from app.config import get_settings
 from ingestion.chunk import chunk_pages
 from ingestion.index_schema import build_index
-from ingestion.parse import extract_pages, parse_filename
+from ingestion.parse import UNKNOWN, extract_pages, fill_from_cover, parse_filename
 
 log = logging.getLogger("ingest")
 
@@ -53,11 +53,30 @@ def doc_key(blob_name: str) -> str:
     )
 
 
+_backoff = wait_random_exponential(min=2, max=60)
+
+
+def _wait_for_rate_limit(state: RetryCallState) -> float:
+    """Honour the service's Retry-After hint; fall back to jittered backoff."""
+    exc = state.outcome.exception() if state.outcome else None
+    if isinstance(exc, RateLimitError):
+        try:
+            return float(exc.response.headers.get("retry-after", "")) + 1
+        except ValueError:
+            pass
+    return _backoff(state)
+
+
+def _log_retry(state: RetryCallState) -> None:
+    wait = state.next_action.sleep if state.next_action else 0
+    log.warning("Embedding rate-limited (429); waiting %.0fs", wait)
+
+
 @retry(
     retry=retry_if_exception_type(RateLimitError),
-    wait=wait_random_exponential(min=2, max=60),
-    stop=stop_after_attempt(8),
-    before_sleep=before_sleep_log(log, logging.WARNING),
+    wait=_wait_for_rate_limit,
+    stop=stop_after_delay(15 * 60),
+    before_sleep=_log_retry,
     reraise=True,
 )
 def embed(texts: Sequence[str]) -> list[list[float]]:
@@ -112,8 +131,10 @@ def upload(docs: list[dict[str, Any]]) -> None:
 
 def ingest_blob(blob_name: str) -> int:
     s = get_settings()
-    meta = parse_filename(blob_name)
     pages = extract_pages(get_container_client(), blob_name)
+    meta = fill_from_cover(parse_filename(blob_name), pages)
+    if UNKNOWN in (meta.company, meta.doc_type, meta.period):
+        log.warning("%s: incomplete metadata %s", blob_name, meta)
     chunks = chunk_pages(pages, s.chunk_size, s.chunk_overlap)
     if not chunks:
         log.warning("%s: no extractable text (scanned PDF?); skipped", blob_name)
