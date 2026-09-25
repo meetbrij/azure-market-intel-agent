@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://mia:mia@localhost:5432/mia"
     redis_url: str = "redis://localhost:6379/0"
 
+    # Chunks per sub-question (per company when several are requested).
+    retrieval_top_k: int = 4
+
     chunk_size: int = 1000
     chunk_overlap: int = 150
     embed_batch_size: int = 64

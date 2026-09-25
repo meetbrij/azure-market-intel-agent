@@ -3,7 +3,9 @@ SQLite file, and the arq queue is a mock."""
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,7 +27,17 @@ os.environ.update(DUMMY_ENV)
 from app.api.main import app
 from app.api.routes import get_queue
 from app.config import get_settings
-from app.graph.state import Citation, Report, ReportSection
+from app.graph.state import (
+    Citation,
+    Critique,
+    DraftCitation,
+    DraftReport,
+    DraftSection,
+    Report,
+    ReportSection,
+    ResearchPlan,
+)
+from app.graph.tools import set_news_tool
 from app.jobs import store
 
 
@@ -88,6 +100,8 @@ def make_citation(**overrides: object) -> Citation:
         "chunk_no": 157,
         "page": 27,
         "quote": "Operating income was $68.6 billion and $80.0 billion for 2024 and 2025.",
+        "source_type": "filing",
+        "reference": HIT["id"],
     }
     data.update(overrides)
     return Citation.model_validate(data)
@@ -103,3 +117,88 @@ def make_report(*citations: Citation) -> Report:
             )
         ],
     )
+
+
+# ---------- graph fakes: LLM, Search and the company list, no network ----------
+
+DEFAULT_PLAN = ResearchPlan(
+    subject="Amazon operating income",
+    sub_questions=["Amazon operating income 2024 and 2025"],
+    companies=["Amazon"],
+    needs_live_news=False,
+)
+
+
+def make_draft(*references: str) -> DraftReport:
+    return DraftReport(
+        subject="Amazon operating income",
+        summary="Operating income rose from $68.6B to $80.0B.",
+        sections=[
+            DraftSection(
+                heading="Change",
+                body="Up in 2025.",
+                citations=[
+                    DraftCitation(
+                        reference=r, quote="Operating income was $80.0 billion"
+                    )
+                    for r in references
+                ],
+            )
+        ],
+    )
+
+
+@dataclass
+class FakeLLM:
+    """Stands in for app.graph.llm. Each label maps to one response (reused)
+    or a list (consumed in order). Records (label, user message) per call."""
+
+    responses: dict[str, Any] = field(
+        default_factory=lambda: {
+            "plan": DEFAULT_PLAN,
+            "compact": f"Operating income rose [{HIT['id']}]",
+            "write": make_draft(str(HIT["id"])),
+            "critique": Critique(is_complete=True),
+        }
+    )
+    calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def _next(self, label: str) -> Any:
+        r = self.responses[label]
+        value = r.pop(0) if isinstance(r, list) else r
+        return value.model_copy(deep=True) if hasattr(value, "model_copy") else value
+
+    async def parse_structured(
+        self, label: str, system: str, user: str, schema: type[Any]
+    ) -> Any:
+        self.calls.append((label, user))
+        return self._next(label)
+
+    async def complete_text(self, label: str, system: str, user: str) -> str:
+        self.calls.append((label, user))
+        return str(self._next(label))
+
+    def labels(self) -> list[str]:
+        return [label for label, _ in self.calls]
+
+
+@dataclass
+class GraphDeps:
+    llm: FakeLLM
+    search: AsyncMock
+
+
+@pytest.fixture
+def graph_deps(monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphDeps]:
+    llm = FakeLLM()
+    search = AsyncMock(return_value=[HIT])
+    monkeypatch.setattr("app.graph.nodes.parse_structured", llm.parse_structured)
+    monkeypatch.setattr("app.graph.nodes.complete_text", llm.complete_text)
+    monkeypatch.setattr("app.graph.nodes.search_many", search)
+    monkeypatch.setattr(
+        "app.graph.nodes.list_companies",
+        AsyncMock(return_value=["Alphabet", "Amazon", "Microsoft"]),
+    )
+    set_news_tool(None)
+    yield GraphDeps(llm=llm, search=search)
+    set_news_tool(None)

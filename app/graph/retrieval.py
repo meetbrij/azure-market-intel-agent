@@ -20,12 +20,14 @@ SELECT_FIELDS = [
     "page",
 ]
 
+_companies: list[str] | None = None
 
-async def embed_query(text: str) -> list[float]:
+
+async def embed_queries(texts: list[str]) -> list[list[float]]:
     resp = await get_async_aoai().embeddings.create(
-        model=get_settings().azure_openai_embed_deployment, input=[text]
+        model=get_settings().azure_openai_embed_deployment, input=texts
     )
-    return resp.data[0].embedding
+    return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
 
 
 def company_filter(companies: list[str]) -> str | None:
@@ -55,17 +57,40 @@ async def _vector_search(
     return hits
 
 
-async def search(query: str, companies: list[str], k: int = 8) -> list[dict[str, Any]]:
-    """Top-k chunks; with several companies, top-k per company.
+async def search_many(
+    queries: list[str], companies: list[str], k: int
+) -> list[dict[str, Any]]:
+    """Top-k per query — and, with several companies, per company — deduped
+    by chunk id (best score wins), best first.
 
-    A single top-k over several companies lets whichever filing phrases things
-    closest to the query crowd out the rest (e.g. "Google Cloud" vs "AWS"), so
-    comparisons would silently lose a side.
+    Per-company top-k stops whichever filing phrases things closest to the
+    query (e.g. "Google Cloud" vs "AWS") from crowding out the others.
     """
-    vector = await embed_query(query)
-    if len(companies) <= 1:
-        return await _vector_search(vector, companies, k)
-    per_company = await asyncio.gather(
-        *(_vector_search(vector, [c], k) for c in companies)
+    if not queries:
+        return []
+    vectors = await embed_queries(queries)
+    scopes = [[c] for c in companies] if len(companies) > 1 else [companies]
+    batches = await asyncio.gather(
+        *(_vector_search(v, scope, k) for v in vectors for scope in scopes)
     )
-    return [hit for hits in per_company for hit in hits]
+    best: dict[str, dict[str, Any]] = {}
+    for hit in (h for batch in batches for h in batch):
+        if hit["id"] not in best or hit["score"] > best[hit["id"]]["score"]:
+            best[hit["id"]] = hit
+    return sorted(best.values(), key=lambda h: h["score"], reverse=True)
+
+
+async def search(query: str, companies: list[str], k: int = 8) -> list[dict[str, Any]]:
+    return await search_many([query], companies, k)
+
+
+async def list_companies() -> list[str]:
+    """Companies present in the index (cached for the process lifetime)."""
+    global _companies
+    if _companies is None:
+        results = await get_async_search_client().search(
+            search_text="*", facets=["company,count:100"], top=0
+        )
+        facets = await results.get_facets() or {}
+        _companies = sorted(f["value"] for f in facets.get("company", []))
+    return _companies

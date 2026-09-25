@@ -1,9 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.graph.nodes import drop_ungrounded
 from app.graph.state import Report
-from tests.conftest import HIT, make_citation, make_report
+from tests.conftest import make_citation
 
 SAMPLE = {
     "subject": "Amazon operating income",
@@ -21,6 +20,8 @@ SAMPLE = {
                     "chunk_no": 157,
                     "page": 27,
                     "quote": "Operating income was $68.6 billion and $80.0 billion.",
+                    "source_type": "filing",
+                    "reference": "amzn-annual-report-10k-157",
                 }
             ],
         }
@@ -44,8 +45,14 @@ def test_long_quote_is_trimmed_to_25_words() -> None:
     assert len(citation.quote.rstrip("…").split()) == 25
 
 
-def test_drop_ungrounded_removes_unknown_chunks() -> None:
-    real = make_citation()
-    fake = make_citation(chunk_no=9999)
-    report = drop_ungrounded(make_report(real, fake), [HIT])
-    assert report.sections[0].citations == [real]
+def test_news_citation_needs_no_filing_fields() -> None:
+    citation = make_citation(
+        source_type="news",
+        reference="https://example.com/a",
+        company=None,
+        doc_type=None,
+        source_blob=None,
+        chunk_no=None,
+        page=None,
+    )
+    assert citation.page is None

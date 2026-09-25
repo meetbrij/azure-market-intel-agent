@@ -1,31 +1,11 @@
 """Worker runs the real graph with Search and the LLM mocked."""
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
 from app.jobs import store
 from app.jobs.worker import run_research
-from tests.conftest import HIT, make_citation, make_report
+from tests.conftest import GraphDeps
 
 
-def fake_aoai(report: object) -> MagicMock:
-    message = SimpleNamespace(parsed=report, refusal=None)
-    client = MagicMock()
-    client.chat.completions.parse = AsyncMock(
-        return_value=SimpleNamespace(choices=[SimpleNamespace(message=message)])
-    )
-    return client
-
-
-async def test_run_research_completes_job(
-    db: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    search = AsyncMock(return_value=[HIT])
-    aoai = fake_aoai(make_report(make_citation()))
-    monkeypatch.setattr("app.graph.nodes.search", search)
-    monkeypatch.setattr("app.graph.nodes.get_async_aoai", lambda: aoai)
+async def test_run_research_completes_job(db: None, graph_deps: GraphDeps) -> None:
     job = await store.create_job("Amazon operating income", ["Amazon"])
 
     await run_research({}, job.id)
@@ -34,18 +14,14 @@ async def test_run_research_completes_job(
     assert done is not None
     assert done.status == "completed"
     assert done.result is not None
-    assert done.result["sections"][0]["citations"][0]["chunk_no"] == 157
-    search.assert_awaited_once_with("Amazon operating income", ["Amazon"], k=8)
-    prompt = aoai.chat.completions.parse.await_args.kwargs["messages"][1]["content"]
-    assert "chunk_no=157" in prompt
+    citation = done.result["sections"][0]["citations"][0]
+    assert (citation["chunk_no"], citation["page"]) == (157, 27)
+    assert graph_deps.search.await_args is not None
+    assert graph_deps.search.await_args.args[1] == ["Amazon"]
 
 
-async def test_run_research_records_failure(
-    db: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "app.graph.nodes.search", AsyncMock(side_effect=TimeoutError("search down"))
-    )
+async def test_run_research_records_failure(db: None, graph_deps: GraphDeps) -> None:
+    graph_deps.search.side_effect = TimeoutError("search down")
     job = await store.create_job("anything", [])
 
     await run_research({}, job.id)
