@@ -25,6 +25,7 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY app ./app
+COPY mcp_news ./mcp_news
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

@@ -153,6 +153,45 @@ uv run pytest          # no network: SQLite + mocked LLM, Search and queue
 uv run ruff check app ingestion tests && uv run mypy app ingestion tests --ignore-missing-imports
 ```
 
+## Live news via MCP
+
+`mcp_news/` is a real [MCP](https://modelcontextprotocol.io) server (FastMCP)
+wrapping Tavily. It exposes two tools:
+
+- `search_company_news(company, days=7, max_results=5)`
+- `get_market_context(topic)`
+
+Both return `{title, url, published, snippet}`. The Tavily key is read from Key
+Vault (`tavily-api-key`) with keyless auth and never leaves the server process.
+
+The worker opens one MCP session at startup (`langchain-mcp-adapters`) and
+keeps it for its lifetime. By default it spawns the server over **stdio**; set
+`NEWS_MCP_URL` to use a separately deployed **streamable-HTTP** server instead
+(`NEWS_MCP_TRANSPORT=streamable-http` on the server side). If the server is
+unavailable, the run continues without news and records `"news"` as a
+degraded source.
+
+```bash
+uv run python -m mcp_news.server                                          # stdio
+npx @modelcontextprotocol/inspector uv run python -m mcp_news.server      # inspect interactively
+```
+
+**Untrusted content guardrail.** Everything fetched from the web is treated as
+data, never as instructions:
+
+1. The server strips HTML (including script and style blocks), unescapes
+   entities, collapses whitespace, caps titles at 200 and snippets at 500
+   characters, drops non-http(s) URLs and skips social platforms.
+2. The graph's client sanitises again, because a remote server can't be
+   trusted to have done it.
+3. Prompts fence news text in `<untrusted_web_content>` tags, and the
+   compact and write prompts say never to follow instructions found inside
+   them.
+4. The stdio server receives only the environment variables it needs for Key
+   Vault access, not the database URL or anything else.
+
+This is the start of the prompt-injection defence; Phase 4 completes it.
+
 ## Azure auth in containers (local only)
 
 The `local` image target adds the Azure CLI. docker-compose mounts `~/.azure`
@@ -175,6 +214,7 @@ app/
   graph/                        state + Report, retrieval, nodes, compiled graph
   jobs/                         SQLAlchemy jobs table, store, arq worker
 ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
+mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
 tests/                          pytest (API, Report, worker)
 docs/                           Phase 1 spec, ADRs
 Dockerfile, docker-compose.yml  runtime + local images; full local stack

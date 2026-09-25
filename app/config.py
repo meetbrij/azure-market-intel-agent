@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://mia:mia@localhost:5432/mia"
     redis_url: str = "redis://localhost:6379/0"
 
+    # News MCP server: unset URL = spawn the local stdio server (mcp_news);
+    # set it (e.g. http://news:8001/mcp) to use a streamable-HTTP deployment.
+    news_enabled: bool = True
+    news_mcp_url: str | None = None
+
     # Chunks per sub-question (per company when several are requested).
     retrieval_top_k: int = 4
 

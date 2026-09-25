@@ -24,6 +24,7 @@ from app.graph.nodes import (
     write,
 )
 from app.graph.state import ResearchState
+from app.graph.tools import NewsToolRunner
 from app.logging_setup import configure_logging
 
 builder = StateGraph(ResearchState)
@@ -83,6 +84,8 @@ def _describe(node: str, update: dict[str, Any] | None) -> str:
 
 async def _run(query: str, companies: list[str]) -> None:
     final: dict[str, Any] = {}
+    news = NewsToolRunner()
+    await news.start()
     try:
         async for mode, chunk in graph.astream(
             ResearchState(query=query, companies=companies),
@@ -96,6 +99,7 @@ async def _run(query: str, companies: list[str]) -> None:
             else:
                 final = chunk
     finally:
+        await news.stop()
         await close_async_clients()
     state = ResearchState.model_validate(final)
     print(f"\n== loops={state.loop_count} degraded={state.degraded}")

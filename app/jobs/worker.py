@@ -13,6 +13,7 @@ from app.azure_clients import close_async_clients
 from app.config import get_settings
 from app.graph.build import graph
 from app.graph.state import ResearchState
+from app.graph.tools import NewsToolRunner
 from app.jobs import store
 from app.jobs.models import JobStatus
 from app.logging_setup import configure_logging
@@ -55,9 +56,14 @@ async def run_research(ctx: dict[str, Any], job_id: str) -> None:
 async def startup(ctx: dict[str, Any]) -> None:
     configure_logging()
     logging.getLogger("arq").propagate = False  # arq has its own handler
+    # Load MCP tools once per worker, not per job: the handshake isn't free.
+    ctx["news"] = NewsToolRunner()
+    await ctx["news"].start()
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    if "news" in ctx:
+        await ctx["news"].stop()
     await close_async_clients()
     await store.dispose_engine()
 
