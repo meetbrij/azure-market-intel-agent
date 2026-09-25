@@ -20,13 +20,18 @@ DUMMY_ENV = {
     "AZURE_SEARCH_ENDPOINT": "https://example.invalid",
     "AZURE_KEYVAULT_URL": "https://example.invalid/",
     "AZURE_STORAGE_ACCOUNT_URL": "https://example.invalid",
+    # Read by LangGraph at import time: tests must run in strict mode too.
+    "LANGGRAPH_STRICT_MSGPACK": "true",
 }
 os.environ.update(DUMMY_ENV)
 
 
+from langgraph.checkpoint.memory import InMemorySaver
+
 from app.api.main import app
 from app.api.routes import get_queue
 from app.config import get_settings
+from app.graph.build import build_graph
 from app.graph.state import (
     Citation,
     Critique,
@@ -202,3 +207,10 @@ def graph_deps(monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphDeps]:
     set_news_tool(None)
     yield GraphDeps(llm=llm, search=search)
     set_news_tool(None)
+
+
+@pytest.fixture
+def worker_ctx() -> dict[str, Any]:
+    """What arq passes run_research: the graph compiled with a checkpointer
+    (in-memory here; Postgres in the real worker)."""
+    return {"graph": build_graph(InMemorySaver())}

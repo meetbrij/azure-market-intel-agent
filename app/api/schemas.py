@@ -1,6 +1,7 @@
 """Request/response models for the research API."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +23,15 @@ class JobCreated(BaseModel):
     status: JobStatus
 
 
+class ResumeRequest(BaseModel):
+    approved: bool
+    notes: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Guidance for the planner; with approved=false the plan is revised",
+    )
+
+
 class JobView(BaseModel):
     job_id: str
     status: JobStatus
@@ -29,6 +39,11 @@ class JobView(BaseModel):
     companies: list[str]
     report: Report | None = None
     error: str | None = None
+    # Progress: the last graph node completed and how many steps have run.
+    last_node: str | None = None
+    checkpoint_count: int = 0
+    # The approval request while status == awaiting_approval.
+    interrupt: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -41,6 +56,9 @@ class JobView(BaseModel):
             companies=job.companies,
             report=Report.model_validate(job.result) if job.result else None,
             error=job.error,
+            last_node=job.last_node,
+            checkpoint_count=job.checkpoint_count or 0,
+            interrupt=job.interrupt,
             created_at=job.created_at,
             updated_at=job.updated_at,
         )

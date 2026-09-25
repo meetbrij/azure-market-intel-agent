@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     news_enabled: bool = True
     news_mcp_url: str | None = None
 
+    # Pause before `write` for human approval (interrupt). Checkpoints live in
+    # the jobs database, in their own schema.
+    approval_required: bool = True
+    checkpoint_schema: str = "langgraph"
+
     # Chunks per sub-question (per company when several are requested).
     retrieval_top_k: int = 4
 

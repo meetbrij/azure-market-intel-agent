@@ -1,16 +1,28 @@
 """StateGraph assembly.
 
     START -> plan -> (retrieve_filings || fetch_news) -> compact
-          -> approve_gate -> write -> critique -> (plan | END)
+          -> approve_gate -(approved)-> write -> critique -> (plan | END)
+                          -(rejected)-> plan
 
-uv run python -m app.graph.build "question" [--companies Amazon Alphabet]
+uv run python -m app.graph.build "question" [--companies Amazon Alphabet] [--yes]
+
+The CLI uses an in-memory checkpointer; the worker uses Postgres
+(app/graph/checkpoint.py). approve_gate pauses via interrupt(), which needs a
+checkpointer to resume.
 """
 
 import argparse
 import asyncio
+import json
+import uuid
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from app.azure_clients import close_async_clients
 from app.graph.nodes import (
@@ -20,6 +32,7 @@ from app.graph.nodes import (
     fetch_news,
     plan,
     retrieve_filings,
+    route_after_approval,
     route_after_critique,
     write,
 )
@@ -41,11 +54,18 @@ builder.add_edge("plan", "retrieve_filings")  # parallel fan-out
 builder.add_edge("plan", "fetch_news")
 builder.add_edge(["retrieve_filings", "fetch_news"], "compact")  # waits for both
 builder.add_edge("compact", "approve_gate")
-builder.add_edge("approve_gate", "write")
+builder.add_conditional_edges("approve_gate", route_after_approval, ["write", "plan"])
 builder.add_edge("write", "critique")
 builder.add_conditional_edges("critique", route_after_critique, ["plan", END])
 
-graph = builder.compile()
+
+def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[Any]:
+    return builder.compile(checkpointer=checkpointer)
+
+
+def thread_config(thread_id: str) -> RunnableConfig:
+    # thread_id is the job UUID: unique, stable across restarts, < 255 chars.
+    return RunnableConfig(configurable={"thread_id": thread_id})
 
 
 def _describe(node: str, update: dict[str, Any] | None) -> str:
@@ -69,6 +89,7 @@ def _describe(node: str, update: dict[str, Any] | None) -> str:
         return f"brief ~{len(u['compacted_context']) // 4} tokens"
     if node == "approve_gate":
         return f"approval={u['approval']}"
+
     if node == "write":
         r = u["report"]
         n = sum(len(s.citations) for s in r.sections)
@@ -82,26 +103,40 @@ def _describe(node: str, update: dict[str, Any] | None) -> str:
     return str(u)
 
 
-async def _run(query: str, companies: list[str]) -> None:
-    final: dict[str, Any] = {}
+def _ask_approval(payload: dict[str, Any], auto: bool) -> dict[str, Any]:
+    print("\n== approval requested:\n" + json.dumps(payload, indent=2), flush=True)
+    if auto:
+        print("== auto-approved (--yes)")
+        return {"approved": True, "notes": None}
+    answer = input(
+        "Approve? [y = approve / anything else = reject with that as notes]: "
+    )
+    if answer.strip().lower() in {"y", "yes"}:
+        return {"approved": True, "notes": None}
+    return {"approved": False, "notes": answer.strip() or None}
+
+
+async def _run(query: str, companies: list[str], auto_approve: bool) -> None:
+    graph = build_graph(InMemorySaver())
+    config = thread_config(str(uuid.uuid4()))
     news = NewsToolRunner()
     await news.start()
+    pending: Any = ResearchState(query=query, companies=companies)
     try:
-        async for mode, chunk in graph.astream(
-            ResearchState(query=query, companies=companies),
-            stream_mode=["updates", "values"],
-        ):
-            if not isinstance(chunk, dict):
-                continue
-            if mode == "updates":
-                for node, update in chunk.items():
-                    print(f">> {node}: {_describe(node, update)}", flush=True)
-            else:
-                final = chunk
+        while True:
+            async for update in graph.astream(pending, config, stream_mode="updates"):
+                for node, change in update.items():
+                    if node != "__interrupt__":
+                        print(f">> {node}: {_describe(node, change)}", flush=True)
+            snapshot = await graph.aget_state(config)
+            if not snapshot.interrupts:
+                break
+            decision = _ask_approval(snapshot.interrupts[0].value, auto_approve)
+            pending = Command(resume=decision)
     finally:
         await news.stop()
         await close_async_clients()
-    state = ResearchState.model_validate(final)
+    state = ResearchState.model_validate(snapshot.values)
     print(f"\n== loops={state.loop_count} degraded={state.degraded}")
     if state.report is None:
         raise SystemExit(f"No report produced: {state.error}")
@@ -112,9 +147,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("query")
     parser.add_argument("--companies", nargs="*", default=[])
+    parser.add_argument("--yes", action="store_true", help="auto-approve the plan")
     args = parser.parse_args()
     configure_logging()
-    asyncio.run(_run(args.query, args.companies))
+    asyncio.run(_run(args.query, args.companies, args.yes))
 
 
 if __name__ == "__main__":

@@ -110,6 +110,7 @@ def plan_user(
     available: list[str],
     previous: ResearchPlan | None,
     critique: Critique | None,
+    reviewer_notes: str | None = None,
 ) -> str:
     parts = [
         f"QUESTION: {query}",
@@ -117,6 +118,15 @@ def plan_user(
     ]
     if requested:
         parts.append(f"REQUESTED COMPANIES (use exactly these): {', '.join(requested)}")
+    if previous and reviewer_notes is not None:
+        parts.append(
+            "A HUMAN REVIEWER REJECTED THIS PLAN:\n"
+            + "\n".join(f"- {q}" for q in previous.sub_questions)
+        )
+        parts.append(
+            "REVIEWER NOTES (revise the whole plan to follow these): "
+            + (reviewer_notes or "(none given; propose a materially different plan)")
+        )
     if previous and critique:
         parts.append(
             "PREVIOUS SUB-QUESTIONS:\n"

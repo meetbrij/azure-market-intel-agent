@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from langgraph.graph import END
+from langgraph.types import interrupt
 
 from app.config import get_settings
 from app.graph import prompts
@@ -48,14 +49,28 @@ def resolve_companies(
     return list(dict.fromkeys(resolved))
 
 
+def rejected(state: ResearchState) -> bool:
+    return state.approval is not None and not state.approval.get("approved", False)
+
+
 async def plan(state: ResearchState) -> dict[str, Any]:
     available = await list_companies()
-    follow_up = state.critique if state.loop_count > 0 else None
+    # A reviewer rejection takes precedence over the critique: revise the whole
+    # plan per their notes rather than narrowing to the critic's gaps.
+    reviewer_notes = (
+        ((state.approval or {}).get("notes") or "") if rejected(state) else None
+    )
+    follow_up = state.critique if state.loop_count > 0 and not rejected(state) else None
     result = await parse_structured(
         "plan",
         prompts.PLAN_SYSTEM,
         prompts.plan_user(
-            state.query, state.companies, available, state.plan, follow_up
+            state.query,
+            state.companies,
+            available,
+            state.plan,
+            follow_up,
+            reviewer_notes,
         ),
         ResearchPlan,
     )
@@ -176,13 +191,45 @@ async def compact(state: ResearchState) -> dict[str, Any]:
     return {"compacted_context": brief}
 
 
-# ---------- approval (auto until Day 9–10 adds interrupt()) ----------
+# ---------- approval (human in the loop) ----------
+
+
+def approval_request(state: ResearchState) -> dict[str, Any]:
+    """The interrupt payload: what a reviewer needs to approve the plan.
+    JSON-safe, since it is exposed on GET /research/{job_id}."""
+    assert state.plan is not None
+    return {
+        "pass": state.loop_count,
+        "subject": state.plan.subject,
+        "companies": state.plan.companies,
+        "sub_questions": state.plan.sub_questions,
+        "needs_live_news": state.plan.needs_live_news,
+        "evidence_counts": {
+            "filings": len(state.filing_evidence),
+            "news": len(state.news_evidence),
+        },
+        "degraded": state.degraded,
+    }
 
 
 async def approve_gate(state: ResearchState) -> dict[str, Any]:
-    # Day 9–10 replaces this with interrupt({...}) once a checkpointer exists;
-    # interrupts need one to pause and resume.
-    return {"approval": {"approved": True, "mode": "auto", "notes": None}}
+    if not get_settings().approval_required:
+        return {"approval": {"approved": True, "mode": "auto", "notes": None}}
+    # Pauses the run here; the checkpointer persists state until someone calls
+    # POST /research/{id}/resume. On resume this node re-runs from the top and
+    # interrupt() returns the resume payload, so nothing before it may have
+    # side effects.
+    decision = interrupt(approval_request(state))
+    if not isinstance(decision, dict):
+        decision = {"approved": bool(decision)}
+    approved = bool(decision.get("approved", False))
+    notes = decision.get("notes") or None
+    log.info("approve_gate: approved=%s notes=%r", approved, notes)
+    return {"approval": {"approved": approved, "mode": "human", "notes": notes}}
+
+
+def route_after_approval(state: ResearchState) -> str:
+    return "plan" if rejected(state) else "write"
 
 
 # ---------- write ----------

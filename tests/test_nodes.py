@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from langgraph.graph import END
 
 from app.graph import nodes
@@ -171,9 +172,47 @@ async def test_compact_with_no_evidence_skips_llm(graph_deps: GraphDeps) -> None
 # ---------- approve_gate ----------
 
 
-async def test_approve_gate_auto_approves_until_interrupts_land() -> None:
-    update = await nodes.approve_gate(state())
-    assert update["approval"]["approved"] is True
+async def test_approve_gate_auto_approves_when_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setenv("APPROVAL_REQUIRED", "false")
+    get_settings.cache_clear()
+    update = await nodes.approve_gate(state(plan=DEFAULT_PLAN))
+    assert update["approval"] == {"approved": True, "mode": "auto", "notes": None}
+
+
+def test_approval_request_is_small_and_json_safe() -> None:
+    import json
+
+    payload = nodes.approval_request(
+        state(plan=DEFAULT_PLAN, filing_evidence=[FILING], loop_count=1)
+    )
+    assert payload["evidence_counts"] == {"filings": 1, "news": 0}
+    assert FILING.snippet not in json.dumps(payload)  # counts, not documents
+
+
+def test_route_after_approval() -> None:
+    approved = {"approved": True, "mode": "human", "notes": None}
+    rejected = {"approved": False, "mode": "human", "notes": "narrow it"}
+    assert nodes.route_after_approval(state(approval=approved)) == "write"
+    assert nodes.route_after_approval(state(approval=rejected)) == "plan"
+
+
+async def test_plan_after_rejection_uses_reviewer_notes_not_critique(
+    graph_deps: GraphDeps,
+) -> None:
+    rejected = {"approved": False, "mode": "human", "notes": "Only AWS, please"}
+    critique = Critique(is_complete=False, missing=["stale gap"])
+
+    await nodes.plan(
+        state(plan=DEFAULT_PLAN, approval=rejected, critique=critique, loop_count=1)
+    )
+
+    user = graph_deps.llm.calls[-1][1]
+    assert "Only AWS, please" in user
+    assert "stale gap" not in user
 
 
 # ---------- write ----------

@@ -15,6 +15,9 @@ x-app: &app
     # Use only the Azure CLI login (skips the managed-identity/IMDS probe).
     # Phase 4: ManagedIdentityCredential.
     AZURE_TOKEN_CREDENTIALS: AzureCliCredential
+    # Checkpoint deserialisation limited to known-safe types (app/__init__.py
+    # defaults this on; set here so the deployment config shows it).
+    LANGGRAPH_STRICT_MSGPACK: "true"
   volumes:
     - ~/.azure:/mnt/host-azure:ro
   restart: unless-stopped
