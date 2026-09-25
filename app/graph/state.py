@@ -79,6 +79,8 @@ class Report(BaseModel):
     subject: str
     summary: str
     sections: list[ReportSection]
+    # Sources that were unavailable for this run (set by Python, not the LLM).
+    data_gaps: list[str] = []
 
 
 # ---------- LLM output for `write`: cites by reference id only ----------

@@ -89,7 +89,7 @@ async def test_crash_mid_run_resumes_from_checkpoint(
 async def test_run_research_records_failure(
     db: None, graph_deps: GraphDeps, worker_ctx: dict[str, Any]
 ) -> None:
-    graph_deps.search.side_effect = TimeoutError("search down")
+    graph_deps.llm.responses["plan"] = RuntimeError("model refused")
     job = await store.create_job("anything", [])
 
     await run_research(worker_ctx, job.id)
@@ -97,7 +97,28 @@ async def test_run_research_records_failure(
     failed = await store.get_job(job.id)
     assert failed is not None
     assert failed.status == JobStatus.FAILED
-    assert failed.error == "TimeoutError: search down"
+    assert failed.error == "RuntimeError: model refused"
+
+
+async def test_search_outage_degrades_instead_of_failing(
+    db: None, graph_deps: GraphDeps, worker_ctx: dict[str, Any]
+) -> None:
+    graph_deps.search.side_effect = TimeoutError("search down")
+    job = await store.create_job("anything", ["Amazon"])
+
+    await run_research(worker_ctx, job.id)
+    paused = await store.get_job(job.id)
+    assert paused is not None and paused.interrupt is not None
+    assert paused.interrupt["degraded"] == ["filings"]  # reviewer sees it
+    # No evidence means no citations, so the critic forces the second (last)
+    # pass, which pauses for approval again.
+    await run_research(worker_ctx, job.id, resume=APPROVE)
+    await run_research(worker_ctx, job.id, resume=APPROVE)
+
+    done = await store.get_job(job.id)
+    assert done is not None and done.status == JobStatus.COMPLETED
+    assert done.result is not None
+    assert done.result["data_gaps"] == ["filing search unavailable"]
 
 
 async def test_finished_jobs_are_not_rerun(

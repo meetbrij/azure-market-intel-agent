@@ -25,6 +25,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from app.azure_clients import close_async_clients
+from app.config import get_settings
 from app.graph.nodes import (
     approve_gate,
     compact,
@@ -40,26 +41,31 @@ from app.graph.state import ResearchState
 from app.graph.tools import NewsToolRunner
 from app.logging_setup import configure_logging
 
-builder = StateGraph(ResearchState)
-builder.add_node("plan", plan)
-builder.add_node("retrieve_filings", retrieve_filings)
-builder.add_node("fetch_news", fetch_news)
-builder.add_node("compact", compact)
-builder.add_node("approve_gate", approve_gate)
-builder.add_node("write", write)
-builder.add_node("critique", critique)
-
-builder.add_edge(START, "plan")
-builder.add_edge("plan", "retrieve_filings")  # parallel fan-out
-builder.add_edge("plan", "fetch_news")
-builder.add_edge(["retrieve_filings", "fetch_news"], "compact")  # waits for both
-builder.add_edge("compact", "approve_gate")
-builder.add_conditional_edges("approve_gate", route_after_approval, ["write", "plan"])
-builder.add_edge("write", "critique")
-builder.add_conditional_edges("critique", route_after_critique, ["plan", END])
-
 
 def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[Any]:
+    builder = StateGraph(ResearchState)
+    # LLM nodes get LangGraph's wall-clock timeout (NodeTimeoutError fails the
+    # job). Evidence nodes bound their own calls and degrade instead of
+    # failing. approve_gate only waits on a human, which happens between runs.
+    llm_timeout = get_settings().node_timeout_s
+    builder.add_node("plan", plan, timeout=llm_timeout)
+    builder.add_node("retrieve_filings", retrieve_filings)
+    builder.add_node("fetch_news", fetch_news)
+    builder.add_node("compact", compact, timeout=llm_timeout)
+    builder.add_node("approve_gate", approve_gate)
+    builder.add_node("write", write, timeout=llm_timeout)
+    builder.add_node("critique", critique, timeout=llm_timeout)
+
+    builder.add_edge(START, "plan")
+    builder.add_edge("plan", "retrieve_filings")  # parallel fan-out
+    builder.add_edge("plan", "fetch_news")
+    builder.add_edge(["retrieve_filings", "fetch_news"], "compact")  # waits for both
+    builder.add_edge("compact", "approve_gate")
+    builder.add_conditional_edges(
+        "approve_gate", route_after_approval, ["write", "plan"]
+    )
+    builder.add_edge("write", "critique")
+    builder.add_conditional_edges("critique", route_after_critique, ["plan", END])
     return builder.compile(checkpointer=checkpointer)
 
 

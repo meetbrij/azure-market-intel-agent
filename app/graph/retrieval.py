@@ -7,6 +7,7 @@ from azure.search.documents.models import VectorizedQuery
 
 from app.azure_clients import get_async_aoai, get_async_search_client
 from app.config import get_settings
+from app.resilience import with_retries
 
 SELECT_FIELDS = [
     "id",
@@ -24,8 +25,11 @@ _companies: list[str] | None = None
 
 
 async def embed_queries(texts: list[str]) -> list[list[float]]:
-    resp = await get_async_aoai().embeddings.create(
-        model=get_settings().azure_openai_embed_deployment, input=texts
+    resp = await with_retries(
+        "embed",
+        lambda: get_async_aoai().embeddings.create(
+            model=get_settings().azure_openai_embed_deployment, input=texts
+        ),
     )
     return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
 
@@ -39,6 +43,15 @@ def company_filter(companies: list[str]) -> str | None:
 
 
 async def _vector_search(
+    vector: list[float], companies: list[str], k: int
+) -> list[dict[str, Any]]:
+    # Results are fetched while iterating, so retry the search and the read.
+    return await with_retries(
+        "search", lambda: _vector_search_once(vector, companies, k)
+    )
+
+
+async def _vector_search_once(
     vector: list[float], companies: list[str], k: int
 ) -> list[dict[str, Any]]:
     vq = VectorizedQuery(vector=vector, k_nearest_neighbors=k, fields="content_vector")
@@ -88,9 +101,13 @@ async def list_companies() -> list[str]:
     """Companies present in the index (cached for the process lifetime)."""
     global _companies
     if _companies is None:
-        results = await get_async_search_client().search(
-            search_text="*", facets=["company,count:100"], top=0
-        )
-        facets = await results.get_facets() or {}
-        _companies = sorted(f["value"] for f in facets.get("company", []))
+        _companies = await with_retries("list_companies", _fetch_companies)
     return _companies
+
+
+async def _fetch_companies() -> list[str]:
+    results = await get_async_search_client().search(
+        search_text="*", facets=["company,count:100"], top=0
+    )
+    facets = await results.get_facets() or {}
+    return sorted(f["value"] for f in facets.get("company", []))

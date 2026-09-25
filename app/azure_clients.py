@@ -85,7 +85,7 @@ def get_async_aoai() -> AsyncAzureOpenAI:
         azure_ad_token_provider=get_async_bearer_token_provider(
             get_async_credential(), AOAI_SCOPE
         ),
-        max_retries=4,  # SDK backs off on 429 using Retry-After
+        max_retries=0,  # retries live in app/resilience.py (one layer)
     )
 
 
@@ -93,7 +93,10 @@ def get_async_aoai() -> AsyncAzureOpenAI:
 def get_async_search_client() -> AsyncSearchClient:
     s = get_settings()
     return AsyncSearchClient(
-        s.azure_search_endpoint, s.azure_search_index, get_async_credential()
+        s.azure_search_endpoint,
+        s.azure_search_index,
+        get_async_credential(),
+        retry_total=0,  # retries live in app/resilience.py (one layer)
     )
 
 

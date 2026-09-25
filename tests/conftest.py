@@ -22,6 +22,8 @@ DUMMY_ENV = {
     "AZURE_STORAGE_ACCOUNT_URL": "https://example.invalid",
     # Read by LangGraph at import time: tests must run in strict mode too.
     "LANGGRAPH_STRICT_MSGPACK": "true",
+    # No real waiting between retry attempts in tests.
+    "RETRY_BASE_WAIT_S": "0",
 }
 os.environ.update(DUMMY_ENV)
 
@@ -171,6 +173,8 @@ class FakeLLM:
     def _next(self, label: str) -> Any:
         r = self.responses[label]
         value = r.pop(0) if isinstance(r, list) else r
+        if isinstance(value, BaseException):
+            raise value
         return value.model_copy(deep=True) if hasattr(value, "model_copy") else value
 
     async def parse_structured(

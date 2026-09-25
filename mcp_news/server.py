@@ -11,11 +11,19 @@ import logging
 from functools import lru_cache
 from typing import Any, Literal, TypedDict
 
+import httpx
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from mcp.server.fastmcp import FastMCP
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from tavily import AsyncTavilyClient
+from tavily.errors import TimeoutError as TavilyTimeoutError
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from mcp_news.sanitize import MAX_SNIPPET_CHARS, MAX_TITLE_CHARS, clean_text, iso_date
 
@@ -89,6 +97,37 @@ EXCLUDED_DOMAINS = [
 ]
 
 
+# Sized to finish inside the graph client's 30s per-call timeout.
+TAVILY_TIMEOUT_S = 8.0
+TAVILY_ATTEMPTS = 3
+
+
+def is_transient(exc: BaseException) -> bool:
+    """Retry timeouts, connection errors, 429 and 5xx; never other 4xx
+    (bad key, bad request, usage limit exceeded)."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, TavilyTimeoutError | httpx.TransportError | TimeoutError)
+
+
+async def tavily_search(query: str, **kwargs: Any) -> dict[str, Any]:
+    async for attempt in AsyncRetrying(
+        retry=retry_if_exception(is_transient),
+        stop=stop_after_attempt(TAVILY_ATTEMPTS),
+        wait=wait_random_exponential(multiplier=0.5, max=2),
+        reraise=True,
+    ):
+        with attempt:
+            result: dict[str, Any] = await get_tavily().search(
+                query,
+                timeout=TAVILY_TIMEOUT_S,
+                exclude_domains=EXCLUDED_DOMAINS,
+                **kwargs,
+            )
+            return result
+    raise AssertionError("unreachable")
+
+
 def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
@@ -109,13 +148,12 @@ async def search_company_news(
 ) -> list[NewsResult]:
     """Recent news articles about a company (title, url, published date, snippet)."""
     days, max_results = _clamp(days, 1, 30), _clamp(max_results, 1, 10)
-    response = await get_tavily().search(
+    response = await tavily_search(
         f"{company} company news",
         topic="news",
         days=days,
         max_results=max_results,
         search_depth="basic",
-        exclude_domains=EXCLUDED_DOMAINS,
     )
     results = to_results(response, max_results)
     log.info(
@@ -127,13 +165,8 @@ async def search_company_news(
 @mcp.tool()
 async def get_market_context(topic: str) -> list[NewsResult]:
     """Broader market/industry context for a topic from the last month."""
-    response = await get_tavily().search(
-        topic,
-        topic="news",
-        days=30,
-        max_results=5,
-        search_depth="basic",
-        exclude_domains=EXCLUDED_DOMAINS,
+    response = await tavily_search(
+        topic, topic="news", days=30, max_results=5, search_depth="basic"
     )
     results = to_results(response, 5)
     log.info("get_market_context(%r): %d result(s)", topic, len(results))

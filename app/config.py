@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     azure_openai_api_version: str
     azure_openai_chat_deployment: str
     azure_openai_embed_deployment: str
+    # Used when the primary chat deployment keeps returning 429 or timing out.
+    azure_openai_chat_fallback_deployment: str | None = None
 
     azure_search_endpoint: str
     azure_search_index: str = "filings-v1"
@@ -36,6 +38,12 @@ class Settings(BaseSettings):
     # the jobs database, in their own schema.
     approval_required: bool = True
     checkpoint_schema: str = "langgraph"
+
+    # Resilience: attempts per external call (exponential backoff between),
+    # and a wall-clock cap per graph node.
+    retry_attempts: int = 4
+    retry_base_wait_s: float = 1.0
+    node_timeout_s: float = 300.0
 
     # Chunks per sub-question (per company when several are requested).
     retrieval_top_k: int = 4

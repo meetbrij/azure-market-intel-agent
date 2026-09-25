@@ -4,6 +4,7 @@ plan -> (retrieve_filings || fetch_news) -> compact -> approve_gate -> write
 -> critique -> (plan | END)
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -33,6 +34,10 @@ MAX_SUB_QUESTIONS = 5
 COMPACT_TOKEN_BUDGET = 2000
 NEWS_DAYS = 7
 NEWS_PER_COMPANY = 5
+DATA_GAP_LABELS = {
+    "news": "live news unavailable",
+    "filings": "filing search unavailable",
+}
 
 
 # ---------- plan ----------
@@ -108,9 +113,17 @@ def evidence_from_hit(hit: dict[str, Any]) -> Evidence:
 
 async def retrieve_filings(state: ResearchState) -> dict[str, Any]:
     assert state.plan is not None
-    hits = await search_many(
-        state.plan.sub_questions, state.plan.companies, k=get_settings().retrieval_top_k
-    )
+    try:
+        async with asyncio.timeout(get_settings().node_timeout_s):
+            hits = await search_many(
+                state.plan.sub_questions,
+                state.plan.companies,
+                k=get_settings().retrieval_top_k,
+            )
+    except Exception:  # includes TimeoutError
+        # Retries are exhausted: degrade rather than fail; the report says so.
+        log.exception("retrieve_filings: search failed; continuing without new filings")
+        return {"degraded": ["filings"]}
     known = {e.reference for e in state.filing_evidence}
     new = [evidence_from_hit(h) for h in hits if h["id"] not in known]
     log.info(
@@ -284,6 +297,9 @@ async def write(state: ResearchState) -> dict[str, Any]:
         DraftReport,
     )
     report = hydrate(draft, evidence)
+    report.data_gaps = [
+        DATA_GAP_LABELS.get(d, f"{d} unavailable") for d in state.degraded
+    ]
     log.info(
         "write: %d section(s), %d citation(s)",
         len(report.sections),
