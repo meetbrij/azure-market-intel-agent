@@ -1,16 +1,20 @@
 # Azure Market Intelligence Agent
 
 Ask a research question about public companies and get back a structured
-report where every claim cites a specific page of an SEC 10-K filing.
+report where every claim cites a specific page of an SEC 10-K filing or a
+news URL.
 
-A FastAPI service queues the request, and an async worker runs a LangGraph
-pipeline. The pipeline retrieves grounded context from Azure AI Search and asks
-Azure OpenAI for a cited report. Answers come only from the filings: no web
-search, no invented numbers. If the filings don't cover the question, the
-report says so.
+A FastAPI service queues the request, and a separate worker runs a
+multi-step LangGraph agent. The agent plans sub-questions, then searches the
+10-K filings (Azure AI Search) and live news (an MCP server) in parallel. It
+condenses the evidence, **pauses for human approval**, writes a cited report,
+and critiques it, re-planning once if it finds gaps. Every step is
+checkpointed in Postgres, so a job survives a worker crash and resumes where
+it stopped.
 
-**Status:** Phase 1 (thin slice): an end-to-end RAG path over the FY2025/26
-10-Ks of Amazon, Alphabet and Microsoft. See [the spec](docs/PHASE1_SPEC.md).
+**Status:** Phase 2 (agents, MCP and resilience), over the FY2025/26 10-Ks
+of Amazon, Alphabet and Microsoft. Specs: [Phase 1](docs/PHASE1_SPEC.md),
+[Phase 2](docs/PHASE2_SPEC.md).
 
 ## Architecture
 
@@ -23,37 +27,74 @@ flowchart LR
     end
     E --> S[(Azure AI Search<br/>filings-v1 · HNSW)]
 
-    U([Client / Swagger]) -->|POST /api/v1/research| API[FastAPI]
-    U -->|GET /api/v1/research/id| API
-    API -->|job row| PG[(Postgres<br/>jobs)]
+    U([Client / Swagger]) -->|POST /research<br/>POST /research/id/resume| API[FastAPI]
+    U -->|GET /research/id| API
+    API -->|job rows| PG[(Postgres<br/>jobs + langgraph<br/>checkpoints)]
     API -->|enqueue| R[(Redis<br/>arq queue)]
-    R --> W[arq worker]
-    W -->|status + report| PG
-    subgraph Graph["LangGraph"]
-        RT[retrieve] --> WR[write]
-    end
-    W --> Graph
-    RT -->|vector query| S
-    RT -->|embed query| AOAI[Azure OpenAI]
-    WR -->|structured output: Report| AOAI
+    R --> W[arq worker<br/>LangGraph agent]
+    W <-->|state per step| PG
+    W -->|vector search| S
+    W -->|chat + embeddings| AOAI[Azure OpenAI]
+    W -->|MCP stdio| N[mcp_news server]
+    N -->|key from Key Vault| T[Tavily]
 ```
+
+### The agent graph
+
+```mermaid
+flowchart TD
+    START([START]) --> plan
+    plan --> retrieve_filings
+    plan --> fetch_news
+    retrieve_filings --> compact
+    fetch_news --> compact
+    compact --> gate{{"approve_gate<br/>interrupt: human review"}}
+    gate -->|approved| write
+    gate -->|rejected + notes| plan
+    write --> critique
+    critique -->|"gaps and loop_count < 2"| plan
+    critique -->|complete or cap reached| END([END])
+```
+
+| Node | Does | If it fails |
+|---|---|---|
+| `plan` | 3–5 sub-questions, companies, whether news is needed (structured output) | job fails |
+| `retrieve_filings` | vector search per sub-question (and per company), deduped | degrades: `data_gaps` |
+| `fetch_news` | recent news via the MCP server, when the plan asks for it | degrades: `data_gaps` |
+| `compact` | condenses evidence into a ~2K-token brief, keeping every reference id | job fails |
+| `approve_gate` | pauses with the plan and evidence counts until someone resumes | waits |
+| `write` | cited report from the brief and evidence | job fails |
+| `critique` | LLM review plus deterministic citation checks; may send it back to `plan` | job fails |
+
+Why this shape, why the gate sits before the writer, and why the loop is
+capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
 
 ## Design choices
 
 - **Keyless auth everywhere.** Every Azure client uses `DefaultAzureCredential`
-  (Entra ID); the code holds no API keys. Deployment names come from env vars,
-  so swapping a retired model is a config change.
-- **Grounded, verifiable citations.** Each citation carries company, period,
-  source file, chunk and page. After generation, any citation that doesn't
-  point to a chunk that was actually retrieved is dropped.
-- **Balanced retrieval for comparisons.** When several companies are
-  requested, each gets its own top-k. A single top-k let "Google Cloud" chunks
-  crowd out Amazon's "AWS" chunks.
-- **A separate worker instead of FastAPI `BackgroundTasks`.** Jobs survive API
-  restarts, and this sets up resumable runs in Phase 2. See
+  (Entra ID); the code holds no API keys. The only third-party key (Tavily)
+  comes from Key Vault. Deployment names come from env vars, so swapping a
+  retired model is a config change.
+- **Citations grounded in Python, not trusted from the model.** The writer
+  cites evidence by reference id only. Company, period, page and chunk are
+  filled in from the evidence, and a reference that wasn't retrieved is
+  dropped. The critic's deterministic checks override the LLM's verdict.
+- **Human in the loop at the cheapest useful point.** The reviewer sees the
+  plan and what was found before the expensive writing step, and can reject
+  with notes to re-plan.
+- **Hard cost cap.** At most two plan passes per job (`MAX_LOOPS`);
+  rejections count toward it.
+- **Durable and resumable.** Postgres checkpoints with `thread_id = job id`,
+  plus startup recovery of jobs a dead worker left `running`.
+  [ADR 0003](docs/adr/0003-checkpointing.md).
+- **Degrade, don't fail.** A Search or news outage is recorded in the
+  report's `data_gaps` and the run still completes. Transient errors (429, 5xx,
+  timeouts) are retried with backoff. Chat calls fall back to a second
+  deployment on repeated 429s or timeouts. LLM nodes have a wall-clock timeout.
+- **Balanced retrieval for comparisons.** Each requested company gets its own
+  top-k; otherwise "Google Cloud" chunks crowd out Amazon's "AWS" chunks.
+- **A separate worker instead of FastAPI `BackgroundTasks`.**
   [ADR 0001](docs/adr/0001-async-job-execution.md).
-- **Pydantic v2 throughout:** settings, graph state, the `Report` schema
-  (used directly as the LLM's structured output) and the API models.
 
 ## Setup
 
@@ -68,7 +109,8 @@ and `az login` as a user with these roles on the resources:
 | Key Vault | Key Vault Secrets User |
 
 The OpenAI resource needs a chat deployment (e.g. `gpt-5-mini`) and an
-embedding deployment (e.g. `text-embedding-3-small`).
+embedding deployment (e.g. `text-embedding-3-small`). Key Vault needs a
+`tavily-api-key` secret for news.
 
 ```bash
 uv sync
@@ -99,43 +141,106 @@ docker compose ps          # api, worker, postgres, redis: all healthy
 
 Swagger UI: <http://localhost:8000/docs>
 
-### Demo
+### Demo: submit, approve, get the report
 
 ```bash
 JOB=$(curl -s -X POST localhost:8000/api/v1/research \
   -H 'content-type: application/json' \
-  -d '{"query":"Compare Amazon and Alphabet cloud revenue growth","companies":["Amazon","Alphabet"]}' \
+  -d '{"query":"Compare Amazon and Microsoft cloud revenue growth and recent cloud news","companies":["Amazon","Microsoft"]}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
+
+# queued -> running (last_node / checkpoint_count show progress) -> awaiting_approval
+until curl -s localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(awaiting_approval|completed|failed)"'; do sleep 3; done
+curl -s localhost:8000/api/v1/research/$JOB | python3 -m json.tool   # "interrupt" holds the plan to review
+```
+
+The job waits at `awaiting_approval` until someone decides:
+
+```json
+"interrupt": {
+  "pass": 1,
+  "companies": ["Amazon", "Microsoft"],
+  "sub_questions": ["Amazon AWS net sales and year-over-year growth ...", "..."],
+  "needs_live_news": true,
+  "evidence_counts": {"filings": 18, "news": 10},
+  "degraded": []
+}
+```
+
+```bash
+# Reject with notes: the planner revises the plan and the job pauses again
+curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
+  -d '{"approved": false, "notes": "Use the latest fiscal year vs the prior year only."}'
+
+# Approve: write -> critique (one more re-plan and approval if the critic finds gaps)
+curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
+  -d '{"approved": true}'
 
 until curl -s localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(completed|failed)"'; do sleep 3; done
 curl -s localhost:8000/api/v1/research/$JOB | python3 -m json.tool
 ```
 
-Result (trimmed):
+Result (trimmed, from a real run):
 
 ```json
 {
   "status": "completed",
+  "last_node": "critique",
+  "checkpoint_count": 12,
   "report": {
-    "summary": "Amazon reported AWS sales increased 20% in 2025; Alphabet's Google Cloud revenues grew to $58,705 million in 2025 from $43,229 million in 2024 ...",
+    "summary": "Amazon reported AWS net sales of $128,725 (FY2025) and $107,556 (FY2024); Amazon stated “AWS sales increased 20% in 2025.” Microsoft reported Intelligent Cloud revenue of $137,791 (FY2026) and $106,265 (FY2025) ...",
     "sections": [
       {
-        "heading": "Amazon — AWS growth (reported)",
+        "heading": "Amazon AWS — revenue and operating income (FY2024–FY2025)",
         "citations": [
           {
+            "source_type": "filing", "reference": "amzn-annual-report-10k-145",
             "company": "Amazon", "doc_type": "10-K", "period": "2025-12-31",
             "source_blob": "amzn_annual_report_10k.pdf", "chunk_no": 145, "page": 25,
             "quote": "AWS sales increased 20% in 2025, compared to the prior year."
           }
         ]
+      },
+      {
+        "heading": "Recent cloud-related developments after the fiscal-year ends",
+        "citations": [
+          {
+            "source_type": "news", "company": "Microsoft", "period": "2026-09-23",
+            "reference": "https://www.bradenton.com/news/business/article317353820.html",
+            "quote": "Microsoft plans $10 billion-plus Gulf investment with focus on resilience"
+          }
+        ]
       }
-    ]
+    ],
+    "data_gaps": []
   }
 }
 ```
 
-Other endpoints: `GET /health` checks Postgres and Redis. An unknown job id
-returns 404.
+Job statuses: `queued`, `running`, `awaiting_approval`, `completed`,
+`failed`. Resuming a job that isn't paused returns 409; an unknown id returns
+404. `GET /health` checks Postgres and Redis.
+
+### Demo: kill the worker mid-run, watch it resume
+
+```bash
+# Submit a job (as above), and once "last_node" is "plan" (retrieval in flight):
+docker compose kill worker          # SIGKILL: no cleanup runs
+docker compose up -d worker
+docker compose logs -f worker
+```
+
+```
+WARNING Recovering job 24dfc2b4-… (last node plan, 1 checkpoints): still queued; lock released
+INFO    Job 24dfc2b4-… resuming from checkpoint; completed nodes are skipped, next=['retrieve_filings', 'fetch_news']
+INFO    fetch_news: 10 new item(s)
+INFO    retrieve_filings: 18 hit(s), 18 new, 18 total
+INFO    Job 24dfc2b4-… awaiting approval (pass 1)
+```
+
+`plan` is not run again: the job resumes from its last checkpoint. On startup
+the worker releases the dead worker's queue lock (otherwise held for 610s)
+and re-enqueues every job still marked `running`.
 
 ### Local dev without app containers
 
@@ -143,15 +248,30 @@ returns 404.
 docker compose up -d postgres redis
 uv run uvicorn app.api.main:app --reload         # terminal 1
 uv run arq app.jobs.worker.WorkerSettings        # terminal 2
-uv run python -m app.graph.build "How did Amazon's operating income change in fiscal 2025?"   # graph only
+uv run python -m app.graph.build "How did Amazon's operating income change in fiscal 2025?" --yes   # graph only (--yes auto-approves)
 ```
 
 ### Tests and checks
 
 ```bash
-uv run pytest          # no network: SQLite + mocked LLM, Search and queue
-uv run ruff check app ingestion tests && uv run mypy app ingestion tests --ignore-missing-imports
+uv run pytest          # no network: SQLite, in-memory checkpointer, mocked LLM/Search/news/queue
+uv run ruff check app ingestion mcp_news tests && uv run mypy app ingestion mcp_news tests --ignore-missing-imports
 ```
+
+## Configuration
+
+Beyond the Azure endpoints in `.env.example`, all optional:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APPROVAL_REQUIRED` | `true` | `false` auto-approves every plan (no pause) |
+| `AZURE_OPENAI_CHAT_FALLBACK_DEPLOYMENT` | unset | chat deployment used after repeated 429s or timeouts |
+| `RETRY_ATTEMPTS` / `RETRY_BASE_WAIT_S` | `4` / `1.0` | retries for Search, embeddings and chat (429, 5xx, timeouts only) |
+| `NODE_TIMEOUT_S` | `300` | wall-clock cap per graph node |
+| `RETRIEVAL_TOP_K` | `4` | chunks per sub-question (per company for comparisons) |
+| `NEWS_ENABLED` / `NEWS_MCP_URL` | `true` / unset | turn news off, or use a remote HTTP MCP server |
+| `CHECKPOINT_SCHEMA` | `langgraph` | Postgres schema for LangGraph's checkpoint tables |
+| `LANGGRAPH_STRICT_MSGPACK` | `true` | only safe types may be loaded from checkpoints |
 
 ## Live news via MCP
 
@@ -163,13 +283,15 @@ wrapping Tavily. It exposes two tools:
 
 Both return `{title, url, published, snippet}`. The Tavily key is read from Key
 Vault (`tavily-api-key`) with keyless auth and never leaves the server process.
+Tavily calls retry timeouts, 429s and 5xx within the client's 30s per-call
+budget.
 
 The worker opens one MCP session at startup (`langchain-mcp-adapters`) and
 keeps it for its lifetime. By default it spawns the server over **stdio**; set
 `NEWS_MCP_URL` to use a separately deployed **streamable-HTTP** server instead
 (`NEWS_MCP_TRANSPORT=streamable-http` on the server side). If the server is
-unavailable, the run continues without news and records `"news"` as a
-degraded source.
+unavailable, the run continues without news and the report's `data_gaps`
+says so.
 
 ```bash
 uv run python -m mcp_news.server                                          # stdio
@@ -200,22 +322,23 @@ container copies the mount into a writable directory, because `az` rewrites
 its token cache when it refreshes a token. Your host `~/.azure` is never
 modified.
 
-This is for local development only. The `runtime` target (no CLI, about
-355 MB) is what gets deployed. **Phase 4 replaces this with a managed
-identity** by setting `AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential`;
-no code changes.
+This is for local development only. The `runtime` target (no CLI) is what
+gets deployed. **Phase 4 replaces this with a managed identity** by setting
+`AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential`; no code changes.
 
 ## Project layout
 
 ```
 app/
   config.py, azure_clients.py   settings; cached keyless clients (sync + async)
-  api/                          FastAPI app, routes, schemas
-  graph/                        state + Report, retrieval, nodes, compiled graph
-  jobs/                         SQLAlchemy jobs table, store, arq worker
+  resilience.py                 retries (429 / 5xx / timeouts)
+  api/                          FastAPI app, routes (research, resume, health), schemas
+  graph/                        state, nodes, prompts, LLM calls + fallback, retrieval,
+                                MCP news client, Postgres checkpointer, graph assembly/CLI
+  jobs/                         jobs table, store, arq worker + crash recovery
 ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
 mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
-tests/                          pytest (API, Report, worker)
-docs/                           Phase 1 spec, ADRs
+tests/                          pytest: API, nodes, graph, worker, MCP, resilience
+docs/                           Phase 1 and 2 specs, ADRs 0001–0003
 Dockerfile, docker-compose.yml  runtime + local images; full local stack
 ```
