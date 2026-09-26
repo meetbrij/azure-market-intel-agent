@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -32,6 +32,8 @@ _POSTGRES_MIGRATIONS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_node VARCHAR(64)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS checkpoint_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS interrupt JSON",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS subject VARCHAR(300)",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS archive_prefix VARCHAR(200)",
 ]
 
 
@@ -88,16 +90,23 @@ async def update_job(
         await session.commit()
 
 
-async def record_progress(job_id: str, node: str) -> None:
+async def record_progress(job_id: str, node: str, subject: str | None = None) -> None:
+    values: dict[str, Any] = {
+        "last_node": node,
+        "checkpoint_count": Job.checkpoint_count + 1,
+        "updated_at": utcnow(),
+    }
+    if subject:
+        values["subject"] = subject[:300]
+    async with get_sessionmaker()() as session:
+        await session.execute(update(Job).where(Job.id == job_id).values(**values))
+        await session.commit()
+
+
+async def set_archive_prefix(job_id: str, prefix: str) -> None:
     async with get_sessionmaker()() as session:
         await session.execute(
-            update(Job)
-            .where(Job.id == job_id)
-            .values(
-                last_node=node,
-                checkpoint_count=Job.checkpoint_count + 1,
-                updated_at=utcnow(),
-            )
+            update(Job).where(Job.id == job_id).values(archive_prefix=prefix)
         )
         await session.commit()
 
@@ -117,7 +126,22 @@ async def transition(
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
-async def list_jobs(status: JobStatus) -> list[Job]:
+async def list_jobs(
+    status: JobStatus | None = None, limit: int | None = None
+) -> list[Job]:
+    """Newest first; optionally filtered by status."""
+    query = select(Job).order_by(Job.created_at.desc())
+    if status is not None:
+        query = query.where(Job.status == status)
+    if limit is not None:
+        query = query.limit(limit)
     async with get_sessionmaker()() as session:
-        rows = await session.scalars(select(Job).where(Job.status == status))
-        return list(rows)
+        return list(await session.scalars(query))
+
+
+async def count_by_status() -> dict[str, int]:
+    async with get_sessionmaker()() as session:
+        rows = await session.execute(
+            select(Job.status, func.count()).group_by(Job.status)
+        )
+        return {status: count for status, count in rows.all()}

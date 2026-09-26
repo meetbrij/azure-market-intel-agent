@@ -31,13 +31,18 @@ def checkpoint_conninfo() -> str:
 
 
 @asynccontextmanager
-async def postgres_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
+async def postgres_checkpointer(
+    *, setup: bool = True
+) -> AsyncIterator[AsyncPostgresSaver]:
+    """setup=True (the worker) creates the schema and LangGraph's tables.
+    Readers (the API) pass False so two processes never race on migrations."""
     conninfo = checkpoint_conninfo()
     schema = get_settings().checkpoint_schema
-    async with await AsyncConnection.connect(conninfo, autocommit=True) as conn:
-        await conn.execute(
-            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
-        )
+    if setup:
+        async with await AsyncConnection.connect(conninfo, autocommit=True) as conn:
+            await conn.execute(
+                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
+            )
     pool: AsyncConnectionPool = AsyncConnectionPool(
         conninfo,
         max_size=POOL_MAX_SIZE,
@@ -52,6 +57,7 @@ async def postgres_checkpointer() -> AsyncIterator[AsyncPostgresSaver]:
     )
     async with pool:
         saver = AsyncPostgresSaver(pool)  # type: ignore[arg-type]
-        await saver.setup()  # creates/migrates LangGraph's tables; idempotent
-        log.info("Checkpointer ready (schema %r)", schema)
+        if setup:
+            await saver.setup()  # creates/migrates LangGraph's tables; idempotent
+        log.info("Checkpointer ready (schema %r, setup=%s)", schema, setup)
         yield saver

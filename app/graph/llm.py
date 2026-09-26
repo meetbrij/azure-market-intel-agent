@@ -7,16 +7,33 @@ which deployment served it.
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 
 import openai
 
 from app.azure_clients import get_async_aoai
 from app.config import get_settings
+from app.graph.state import LlmCall
 from app.resilience import with_retries
 
 log = logging.getLogger(__name__)
+
+_recorded: ContextVar[list[LlmCall] | None] = ContextVar("llm_calls", default=None)
+
+
+@contextmanager
+def recording_calls() -> Iterator[list[LlmCall]]:
+    """Collect the LLM calls made inside the block (one node's worth)."""
+    calls: list[LlmCall] = []
+    token = _recorded.set(calls)
+    try:
+        yield calls
+    finally:
+        _recorded.reset(token)
 
 
 def _messages(system: str, user: str) -> list[dict[str, str]]:
@@ -91,6 +108,17 @@ async def complete_text(label: str, system: str, user: str) -> str:
 
 
 def _log_served(label: str, deployment: str, usage: object) -> None:
+    calls = _recorded.get()
+    if calls is not None:
+        calls.append(
+            LlmCall(
+                node=label,
+                deployment=deployment,
+                prompt_tokens=getattr(usage, "prompt_tokens", None),
+                completion_tokens=getattr(usage, "completion_tokens", None),
+                at=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
+        )
     log.info(
         "%s: served by %s, %s prompt + %s completion tokens",
         label,

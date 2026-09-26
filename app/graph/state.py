@@ -4,6 +4,7 @@ State holds references and short snippets, never whole documents: every
 field here is written to each checkpoint (Phase 2, Day 9–10).
 """
 
+import operator
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -38,6 +39,16 @@ class Evidence(BaseModel):
     source_blob: str | None = None
     chunk_no: int | None = None
     page: int | None = None
+
+
+class LlmCall(BaseModel):
+    """One chat call, for the provenance record: which model served which node."""
+
+    node: str
+    deployment: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    at: str  # ISO timestamp (UTC)
 
 
 class Critique(BaseModel):
@@ -123,4 +134,6 @@ class ResearchState(BaseModel):
     # Any node may mark a source unavailable, possibly concurrently.
     degraded: Annotated[list[str], merge_unique] = []
     approval: dict[str, Any] | None = None
+    # Appended by each LLM node; kept for the archived provenance record.
+    llm_calls: Annotated[list[LlmCall], operator.add] = []
     error: str | None = None

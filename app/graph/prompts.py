@@ -22,6 +22,9 @@ Produce a research plan:
 - sub_questions: 3-5 specific, self-contained questions. Each is used as a \
 search query against 10-K excerpts, so name the company and the metric \
 (e.g. "Amazon AWS segment net sales 2024 and 2025"). One company per question.
+- Ask for figures as the filings report them. Never ask for calculations \
+(growth rates, margins, ratios) — the writer may only quote figures the \
+sources state.
 - companies: only names from the AVAILABLE COMPANIES list.
 - needs_live_news: true only if the question needs developments after the \
 latest fiscal year (recent events, guidance, market reaction). Annual \
@@ -55,7 +58,9 @@ brief and evidence.
 
 Rules:
 - Use ONLY the brief and the evidence below. No outside knowledge.
-- Never invent, estimate or compute numbers that are not stated in the evidence.
+- Never invent, estimate or compute numbers that are not stated in the evidence \
+— not even when a sub-question asks for a growth rate, margin or ratio. \
+Quote the stated figures and say the calculation is not given in the sources.
 - Every section must carry at least one citation.
 - A citation is a reference id copied exactly from an evidence block header, \
 plus a short quote (at most 25 words) copied verbatim from that same block.

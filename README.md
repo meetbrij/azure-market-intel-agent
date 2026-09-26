@@ -10,11 +10,14 @@ multi-step LangGraph agent. The agent plans sub-questions, then searches the
 condenses the evidence, **pauses for human approval**, writes a cited report,
 and critiques it, re-planning once if it finds gaps. Every step is
 checkpointed in Postgres, so a job survives a worker crash and resumes where
-it stopped.
+it stopped. Every finished report is archived, immutable, with its
+provenance and approval history. A Streamlit client makes the whole flow
+usable from a browser.
 
-**Status:** Phase 2 (agents, MCP and resilience), over the FY2025/26 10-Ks
-of Amazon, Alphabet and Microsoft. Specs: [Phase 1](docs/PHASE1_SPEC.md),
-[Phase 2](docs/PHASE2_SPEC.md).
+**Status:** Phase 2 (agents, MCP and resilience) plus the Day 12 Streamlit
+client, over the FY2025/26 10-Ks of Amazon, Alphabet and Microsoft. Specs:
+[Phase 1](docs/PHASE1_SPEC.md), [Phase 2](docs/PHASE2_SPEC.md),
+[UI](docs/PHASE2_UI_SPEC.md).
 
 ## Architecture
 
@@ -27,8 +30,8 @@ flowchart LR
     end
     E --> S[(Azure AI Search<br/>filings-v1 · HNSW)]
 
-    U([Client / Swagger]) -->|POST /research<br/>POST /research/id/resume| API[FastAPI]
-    U -->|GET /research/id| API
+    UI([Streamlit UI<br/>:8501]) -->|HTTP only| API[FastAPI]
+    U([Swagger / curl]) --> API
     API -->|job rows| PG[(Postgres<br/>jobs + langgraph<br/>checkpoints)]
     API -->|enqueue| R[(Redis<br/>arq queue)]
     R --> W[arq worker<br/>LangGraph agent]
@@ -37,6 +40,7 @@ flowchart LR
     W -->|chat + embeddings| AOAI[Azure OpenAI]
     W -->|MCP stdio| N[mcp_news server]
     N -->|key from Key Vault| T[Tavily]
+    W -->|immutable bundle| RB[(Blob Storage<br/>reports)]
 ```
 
 ### The agent graph
@@ -91,6 +95,11 @@ capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
   report's `data_gaps` and the run still completes. Transient errors (429, 5xx,
   timeouts) are retried with backoff. Chat calls fall back to a second
   deployment on repeated 429s or timeouts. LLM nodes have a wall-clock timeout.
+- **An auditable record of every report.** On completion the worker writes
+  `report.json`, `report.md`, `provenance.json` (evidence references, models
+  and tokens per node) and one file per approval decision to
+  `reports/{yyyy}/{mm}/{job_id}/`. Blobs are never overwritten.
+  [ADR 0007](docs/adr/0007-report-archival.md).
 - **Balanced retrieval for comparisons.** Each requested company gets its own
   top-k; otherwise "Google Cloud" chunks crowd out Amazon's "AWS" chunks.
 - **A separate worker instead of FastAPI `BackgroundTasks`.**
@@ -105,7 +114,7 @@ and `az login` as a user with these roles on the resources:
 |---|---|
 | Azure OpenAI / AI Foundry | Cognitive Services OpenAI User |
 | Azure AI Search | Search Index Data Contributor, Search Service Contributor |
-| Storage account | Storage Blob Data Reader |
+| Storage account | Storage Blob Data Contributor (reads filings; writes the report archive and ingestion manifest) |
 | Key Vault | Key Vault Secrets User |
 
 The OpenAI resource needs a chat deployment (e.g. `gpt-5-mini`) and an
@@ -136,10 +145,11 @@ page. Three 10-Ks give about 1,250 chunks and fit in AI Search's Free tier
 
 ```bash
 docker compose up -d --build
-docker compose ps          # api, worker, postgres, redis: all healthy
+docker compose ps          # api, worker, ui, postgres, redis
 ```
 
-Swagger UI: <http://localhost:8000/docs>
+- **Web UI:** <http://localhost:8501> (see [Web UI](#web-ui-streamlit))
+- **Swagger:** <http://localhost:8000/docs>
 
 ### Demo: submit, approve, get the report
 
@@ -248,6 +258,7 @@ and re-enqueues every job still marked `running`.
 docker compose up -d postgres redis
 uv run uvicorn app.api.main:app --reload         # terminal 1
 uv run arq app.jobs.worker.WorkerSettings        # terminal 2
+API_BASE_URL=http://localhost:8000 uv run --group ui streamlit run ui/app.py   # terminal 3
 uv run python -m app.graph.build "How did Amazon's operating income change in fiscal 2025?" --yes   # graph only (--yes auto-approves)
 ```
 
@@ -255,8 +266,63 @@ uv run python -m app.graph.build "How did Amazon's operating income change in fi
 
 ```bash
 uv run pytest          # no network: SQLite, in-memory checkpointer, mocked LLM/Search/news/queue
-uv run ruff check app ingestion mcp_news tests && uv run mypy app ingestion mcp_news tests --ignore-missing-imports
+uv run ruff check app ingestion mcp_news tests ui
+uv run mypy app ingestion mcp_news tests --ignore-missing-imports
+uv run --group ui mypy ui --ignore-missing-imports   # the UI is a separate program
 ```
+
+## Web UI (Streamlit)
+
+A thin client over the API, for demonstrating the approval gate and crash
+resume and for reading reports. It is a demo harness, not a product. It talks
+to the system **only over HTTP** (`ui/api_client.py`). It runs in its own
+image containing just Streamlit and httpx, so it can't import the graph or
+reach Postgres.
+
+| Screen | Who | What |
+|---|---|---|
+| Submit | everyone | question (with example presets), optional company filter from the index |
+| Jobs | everyone | recent jobs with status badges; for reviewers, jobs awaiting approval come first, flagged 🔔 |
+| Job detail | everyone | status, elapsed time, current node, pass counter, degraded-source warnings; live progress (polls every 2s until the job settles) |
+| ↳ tabs | everyone | **Report** (archived Markdown, data gaps up front, numbered citations, download), **Plan**, **Evidence** (filings + news, snippets as plain text), **Critique**, **Raw** JSON |
+| ↳ approval | Reviewer, Admin | the plan, evidence counts and sub-questions; **Approve**, or **Reject** with required notes (sends it back to the planner). Analysts see "Awaiting reviewer approval." |
+| Operations | Admin | index size, last ingestion (from the ingest CLI's manifest), job counts by status, running jobs; read-only |
+
+**The role dropdown is a simulation, not access control.** "Simulated role
+(dev only)" only changes what the UI shows. Anyone can pick any role, and the
+API does not check roles: `POST /research/{id}/resume` is open to anyone who
+can reach it. Day 15 replaces the dropdown with the app role from the user's
+Entra ID token, enforced by the API. Until then, approval records store
+`reviewer: null` rather than trusting the dropdown.
+
+`Planner`, `Writer` and `Critic` are agent nodes in the graph, not human
+roles. The job view shows what each produced, as tabs.
+
+### Demo clips
+
+Three short recordings belong in `docs/media/`:
+
+1. **Happy path:** submit → progress → approval → approved → cited report.
+2. **Crash resume:** `docker compose kill worker` mid-run, restart; the UI
+   keeps showing progress and the job completes from its checkpoint.
+3. **Rejection loop:** reject with notes, the planner re-runs, and the report
+   follows the notes.
+
+<!-- Uncomment once the clips are recorded:
+![Happy path](docs/media/happy-path.gif)
+![Crash resume](docs/media/crash-resume.gif)
+![Rejection loop](docs/media/rejection-loop.gif)
+-->
+
+## Report archive
+
+Each completed job writes `report.json`, `report.md` and `provenance.json`
+to `reports/{yyyy}/{mm}/{job_id}/`, plus `approval-pass{n}.json` for every
+decision. Uploads never overwrite an existing blob, and the prefix is stored
+on the job (`archive_prefix`). `GET /api/v1/research/{id}/report.md` serves
+the archived Markdown (header `X-Report-Source: archive`). If archiving
+failed, it falls back to rendering from the job record (`rendered`). Why and
+how: [ADR 0007](docs/adr/0007-report-archival.md).
 
 ## Configuration
 
@@ -272,6 +338,8 @@ Beyond the Azure endpoints in `.env.example`, all optional:
 | `NEWS_ENABLED` / `NEWS_MCP_URL` | `true` / unset | turn news off, or use a remote HTTP MCP server |
 | `CHECKPOINT_SCHEMA` | `langgraph` | Postgres schema for LangGraph's checkpoint tables |
 | `LANGGRAPH_STRICT_MSGPACK` | `true` | only safe types may be loaded from checkpoints |
+| `REPORTS_CONTAINER` | `reports` | Blob container for the immutable report archive |
+| `API_BASE_URL` (UI only) | `http://api:8000` | where the Streamlit client sends its requests |
 
 ## Live news via MCP
 
@@ -311,6 +379,9 @@ data, never as instructions:
    them.
 4. The stdio server receives only the environment variables it needs for Key
    Vault access, not the database URL or anything else.
+5. When rendered, quoted source text is escaped, and model-written prose has
+   images, inline links and raw HTML neutralised (both `report.md` and the UI's
+   Evidence tab, which shows snippets as plain text).
 
 This is the start of the prompt-injection defence; Phase 4 completes it.
 
@@ -332,13 +403,16 @@ gets deployed. **Phase 4 replaces this with a managed identity** by setting
 app/
   config.py, azure_clients.py   settings; cached keyless clients (sync + async)
   resilience.py                 retries (429 / 5xx / timeouts)
-  api/                          FastAPI app, routes (research, resume, health), schemas
+  api/                          FastAPI app, routes (research, resume, report.md,
+                                companies, ops status, health), schemas
   graph/                        state, nodes, prompts, LLM calls + fallback, retrieval,
                                 MCP news client, Postgres checkpointer, graph assembly/CLI
   jobs/                         jobs table, store, arq worker + crash recovery
+  reports/                      report Markdown renderer, immutable Blob archive
 ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
 mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
-tests/                          pytest: API, nodes, graph, worker, MCP, resilience
-docs/                           Phase 1 and 2 specs, ADRs 0001–0003
+ui/                             Streamlit client (app.py, api_client.py, Dockerfile)
+tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
+docs/                           specs, ADRs 0001–0003 and 0007, media/ (demo clips)
 Dockerfile, docker-compose.yml  runtime + local images; full local stack
 ```

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
 
     azure_storage_account_url: str
     azure_storage_container: str = "raw-filings"
+    # Immutable report archive: {reports_container}/{yyyy}/{mm}/{job_id}/
+    reports_container: str = "reports"
+    # Written by the ingest CLI into the filings container; read by /ops/status.
+    ingestion_manifest_blob: str = "_manifest/last-ingestion.json"
 
     langfuse_host: str = "https://cloud.langfuse.com"
 

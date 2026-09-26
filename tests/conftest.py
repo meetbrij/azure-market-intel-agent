@@ -2,6 +2,7 @@
 SQLite file, and the arq queue is a mock."""
 
 import os
+from collections import defaultdict
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -218,3 +219,55 @@ def worker_ctx() -> dict[str, Any]:
     """What arq passes run_research: the graph compiled with a checkpointer
     (in-memory here; Postgres in the real worker)."""
     return {"graph": build_graph(InMemorySaver())}
+
+
+# ---------- Blob Storage fake: archive and manifest, no network ----------
+
+
+class FakeDownload:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def readall(self) -> bytes:
+        return self._data
+
+
+class FakeContainer:
+    """Behaves like the parts of azure.storage.blob.aio.ContainerClient we use,
+    including refusing to overwrite unless overwrite=True."""
+
+    def __init__(self) -> None:
+        self.blobs: dict[str, bytes] = {}
+
+    async def create_container(self) -> None:
+        return None
+
+    async def upload_blob(
+        self, name: str, data: bytes | str, overwrite: bool = False, **_: Any
+    ) -> None:
+        from azure.core.exceptions import ResourceExistsError
+
+        if name in self.blobs and not overwrite:
+            raise ResourceExistsError(f"{name} exists")
+        self.blobs[name] = data.encode() if isinstance(data, str) else data
+
+    async def download_blob(self, name: str) -> FakeDownload:
+        from azure.core.exceptions import ResourceNotFoundError
+
+        if name not in self.blobs:
+            raise ResourceNotFoundError(f"{name} not found")
+        return FakeDownload(self.blobs[name])
+
+
+@pytest.fixture(autouse=True)
+def blob_storage(monkeypatch: pytest.MonkeyPatch) -> dict[str, FakeContainer]:
+    """Every test gets in-memory containers keyed by name (created on first use,
+    so tests can seed blobs before the code under test runs)."""
+    containers: dict[str, FakeContainer] = defaultdict(FakeContainer)
+
+    def get(name: str) -> FakeContainer:
+        return containers[name]
+
+    monkeypatch.setattr("app.reports.archive.get_async_container_client", get)
+    monkeypatch.setattr("app.api.routes.get_async_container_client", get)
+    return containers

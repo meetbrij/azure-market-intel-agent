@@ -16,6 +16,7 @@ from azure.search.documents import SearchClient
 from azure.search.documents.aio import SearchClient as AsyncSearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.storage.blob import ContainerClient
+from azure.storage.blob.aio import ContainerClient as AsyncContainerClient
 from openai import AsyncAzureOpenAI, AzureOpenAI
 
 from app.config import get_settings
@@ -100,8 +101,23 @@ def get_async_search_client() -> AsyncSearchClient:
     )
 
 
+_async_containers: dict[str, AsyncContainerClient] = {}
+
+
+def get_async_container_client(container: str) -> AsyncContainerClient:
+    if container not in _async_containers:
+        _async_containers[container] = AsyncContainerClient(
+            get_settings().azure_storage_account_url,
+            container,
+            credential=get_async_credential(),
+        )
+    return _async_containers[container]
+
+
 async def close_async_clients() -> None:
     """Close cached async clients (call on process shutdown)."""
+    while _async_containers:
+        await _async_containers.popitem()[1].close()
     if get_async_search_client.cache_info().currsize:
         await get_async_search_client().close()
     if get_async_aoai.cache_info().currsize:

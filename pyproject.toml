@@ -39,6 +39,10 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.8",
 ]
+ui = [
+    "httpx>=0.28.1",
+    "streamlit>=1.64.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

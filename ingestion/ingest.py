@@ -4,13 +4,16 @@ uv run python -m ingestion.ingest [--recreate]
 """
 
 import argparse
+import json
 import logging
 import re
 import sys
 from collections.abc import Iterator, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
+from azure.storage.blob import ContentSettings
 from openai import RateLimitError
 from tenacity import (
     RetryCallState,
@@ -217,16 +220,41 @@ def main(argv: list[str] | None = None) -> int:
     ]
     log.info("Found %d PDF(s) in container", len(blobs))
 
-    total = 0
+    chunks: dict[str, int] = {}
     try:
         for name in blobs:
-            total += ingest_blob(name)
+            chunks[name] = ingest_blob(name)
     except StorageQuotaExceeded as e:
-        log.error("%s — stopped after %d chunks.", e, total)
+        log.error("%s — stopped after %d chunks.", e, sum(chunks.values()))
         return 2
-    log.info("Done: %d documents, %d chunks total", len(blobs), total)
+    log.info("Done: %d documents, %d chunks total", len(blobs), sum(chunks.values()))
     log_storage()
+    write_manifest(chunks, recreated=args.recreate)
     return 0
+
+
+def write_manifest(chunks: dict[str, int], *, recreated: bool) -> None:
+    """Record this run for the API's operations view (the index itself keeps
+    no ingestion timestamp). Overwritten each run: it describes the last one."""
+    s = get_settings()
+    manifest = {
+        "ingested_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "index": s.azure_search_index,
+        "recreated": recreated,
+        "documents": len(chunks),
+        "chunks": sum(chunks.values()),
+        "per_document": chunks,
+        "embedding_deployment": s.azure_openai_embed_deployment,
+        "chunk_size": s.chunk_size,
+        "chunk_overlap": s.chunk_overlap,
+    }
+    get_container_client().upload_blob(
+        s.ingestion_manifest_blob,
+        json.dumps(manifest, indent=2),
+        overwrite=True,
+        content_settings=ContentSettings(content_type="application/json"),
+    )
+    log.info("Wrote ingestion manifest %s", s.ingestion_manifest_blob)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ plan -> (retrieve_filings || fetch_news) -> compact -> approve_gate -> write
 
 import asyncio
 import logging
+from collections.abc import Awaitable
 from typing import Any
 
 from langgraph.graph import END
@@ -13,13 +14,14 @@ from langgraph.types import interrupt
 
 from app.config import get_settings
 from app.graph import prompts
-from app.graph.llm import complete_text, parse_structured
+from app.graph.llm import complete_text, parse_structured, recording_calls
 from app.graph.retrieval import list_companies, search_many
 from app.graph.state import (
     Citation,
     Critique,
     DraftReport,
     Evidence,
+    LlmCall,
     Report,
     ReportSection,
     ResearchPlan,
@@ -38,6 +40,12 @@ DATA_GAP_LABELS = {
     "news": "live news unavailable",
     "filings": "filing search unavailable",
 }
+
+
+async def tracked[T](call: Awaitable[T]) -> tuple[T, list[LlmCall]]:
+    """Await an LLM call and return it with the calls it made (for provenance)."""
+    with recording_calls() as calls:
+        return await call, calls
 
 
 # ---------- plan ----------
@@ -66,18 +74,20 @@ async def plan(state: ResearchState) -> dict[str, Any]:
         ((state.approval or {}).get("notes") or "") if rejected(state) else None
     )
     follow_up = state.critique if state.loop_count > 0 and not rejected(state) else None
-    result = await parse_structured(
-        "plan",
-        prompts.PLAN_SYSTEM,
-        prompts.plan_user(
-            state.query,
-            state.companies,
-            available,
-            state.plan,
-            follow_up,
-            reviewer_notes,
-        ),
-        ResearchPlan,
+    result, calls = await tracked(
+        parse_structured(
+            "plan",
+            prompts.PLAN_SYSTEM,
+            prompts.plan_user(
+                state.query,
+                state.companies,
+                available,
+                state.plan,
+                follow_up,
+                reviewer_notes,
+            ),
+            ResearchPlan,
+        )
     )
     result.companies = resolve_companies(result.companies, state.companies, available)
     result.sub_questions = [q for q in result.sub_questions if q.strip()][
@@ -90,7 +100,7 @@ async def plan(state: ResearchState) -> dict[str, Any]:
         result.companies,
         result.needs_live_news,
     )
-    return {"plan": result, "loop_count": state.loop_count + 1}
+    return {"plan": result, "loop_count": state.loop_count + 1, "llm_calls": calls}
 
 
 # ---------- evidence ----------
@@ -181,10 +191,12 @@ async def compact(state: ResearchState) -> dict[str, Any]:
     evidence = state.filing_evidence + state.news_evidence
     if not evidence:
         return {"compacted_context": "(no evidence retrieved)"}
-    brief = await complete_text(
-        "compact",
-        prompts.COMPACT_SYSTEM,
-        prompts.compact_user(state.query, state.plan, evidence),
+    brief, calls = await tracked(
+        complete_text(
+            "compact",
+            prompts.COMPACT_SYSTEM,
+            prompts.compact_user(state.query, state.plan, evidence),
+        )
     )
     # Guarantee every reference id survives, even ones the model judged irrelevant.
     dropped = [e.reference for e in evidence if e.reference not in brief]
@@ -201,7 +213,7 @@ async def compact(state: ResearchState) -> dict[str, Any]:
     )
     if est_tokens > COMPACT_TOKEN_BUDGET * 1.5:
         log.warning("compact: brief exceeds budget (~%d tokens)", est_tokens)
-    return {"compacted_context": brief}
+    return {"compacted_context": brief, "llm_calls": calls}
 
 
 # ---------- approval (human in the loop) ----------
@@ -288,13 +300,15 @@ def hydrate(draft: DraftReport, evidence: list[Evidence]) -> Report:
 
 async def write(state: ResearchState) -> dict[str, Any]:
     evidence = state.filing_evidence + state.news_evidence
-    draft = await parse_structured(
-        "write",
-        prompts.WRITE_SYSTEM,
-        prompts.write_user(
-            state.query, state.compacted_context, evidence, state.degraded
-        ),
-        DraftReport,
+    draft, calls = await tracked(
+        parse_structured(
+            "write",
+            prompts.WRITE_SYSTEM,
+            prompts.write_user(
+                state.query, state.compacted_context, evidence, state.degraded
+            ),
+            DraftReport,
+        )
     )
     report = hydrate(draft, evidence)
     report.data_gaps = [
@@ -305,7 +319,7 @@ async def write(state: ResearchState) -> dict[str, Any]:
         len(report.sections),
         sum(len(s.citations) for s in report.sections),
     )
-    return {"report": report}
+    return {"report": report, "llm_calls": calls}
 
 
 # ---------- critique ----------
@@ -334,11 +348,15 @@ async def critique(state: ResearchState) -> dict[str, Any]:
     assert state.plan is not None and state.report is not None
     evidence = state.filing_evidence + state.news_evidence
     hard_problems = check_citations(state.report, evidence)
-    review = await parse_structured(
-        "critique",
-        prompts.CRITIQUE_SYSTEM,
-        prompts.critique_user(state.query, state.plan, state.report, state.degraded),
-        Critique,
+    review, calls = await tracked(
+        parse_structured(
+            "critique",
+            prompts.CRITIQUE_SYSTEM,
+            prompts.critique_user(
+                state.query, state.plan, state.report, state.degraded
+            ),
+            Critique,
+        )
     )
     result = Critique(
         is_complete=review.is_complete and not hard_problems,
@@ -352,7 +370,7 @@ async def critique(state: ResearchState) -> dict[str, Any]:
         len(result.missing),
         len(result.citation_problems),
     )
-    return {"critique": result}
+    return {"critique": result, "llm_calls": calls}
 
 
 def route_after_critique(state: ResearchState) -> str:

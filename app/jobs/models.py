@@ -39,6 +39,10 @@ class Job(Base):
     # Progress, updated as the graph streams (one row update per node).
     last_node: Mapped[str | None] = mapped_column(String(64), nullable=True)
     checkpoint_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Report subject from the plan, for the jobs list.
+    subject: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Blob prefix of the archived report bundle (reports/{yyyy}/{mm}/{job_id}/).
+    archive_prefix: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # The approval request while status == awaiting_approval.
     interrupt: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -10,6 +10,7 @@ resumes from the last completed node instead of starting over.
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable
 from contextlib import AsyncExitStack
 from typing import Any, ClassVar
 
@@ -27,6 +28,7 @@ from app.graph.tools import NewsToolRunner
 from app.jobs import store
 from app.jobs.models import JobStatus
 from app.logging_setup import configure_logging
+from app.reports import archive
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +56,10 @@ async def run_research(
     if resume is not None and snapshot.interrupts:
         pending = Command(resume=resume)
         log.info("Job %s resuming after approval: %s", job_id, resume)
+        await _archive_best_effort(
+            "approval",
+            archive.archive_approval(job, snapshot.interrupts[0].value, resume),
+        )
     elif not started:
         pending = ResearchState(query=job.query, companies=job.companies)
         log.info("Job %s starting: %r companies=%s", job_id, job.query, job.companies)
@@ -73,9 +79,12 @@ async def run_research(
     try:
         if pending is not None or snapshot.next:
             async for update in graph.astream(pending, config, stream_mode="updates"):
-                for node in update:
+                for node, change in update.items():
                     if node != INTERRUPT_KEY:
-                        await store.record_progress(job_id, node)
+                        plan = (change or {}).get("plan") if node == "plan" else None
+                        await store.record_progress(
+                            job_id, node, subject=plan.subject if plan else None
+                        )
         snapshot = await graph.aget_state(config)
         if snapshot.interrupts:
             await _await_approval(job_id, snapshot.interrupts[0].value)
@@ -95,10 +104,23 @@ async def run_research(
             job_id, status=JobStatus.FAILED, error=f"{type(e).__name__}: {e}"
         )
         return
+    prefix = await _archive_best_effort("report", archive.archive_report(job, state))
+    if prefix:
+        await store.set_archive_prefix(job_id, prefix)
     await store.update_job(
         job_id, status=JobStatus.COMPLETED, result=state.report.model_dump(mode="json")
     )
     log.info("Job %s completed", job_id)
+
+
+async def _archive_best_effort[T](what: str, write: Awaitable[T]) -> T | None:
+    """Archiving must not lose a finished report: log a failure and carry on
+    (the job row then has no archive_prefix, which the operations view shows)."""
+    try:
+        return await write
+    except Exception:
+        log.exception("Archiving %s failed", what)
+        return None
 
 
 async def _await_approval(job_id: str, payload: dict[str, Any]) -> None:
@@ -143,6 +165,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["stack"] = stack
     checkpointer = await stack.enter_async_context(postgres_checkpointer())
     ctx["graph"] = build_graph(checkpointer)
+    await _archive_best_effort("container setup", archive.ensure_container())
     # Load MCP tools once per worker, not per job: the handshake isn't free.
     ctx["news"] = NewsToolRunner()
     await ctx["news"].start()

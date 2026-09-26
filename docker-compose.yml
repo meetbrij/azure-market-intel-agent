@@ -1,4 +1,4 @@
-# Local stack: api + worker (same image) + Postgres + Redis.
+# Local stack: api + worker (same image) + ui (Streamlit) + Postgres + Redis.
 #   docker compose up -d --build
 # Azure auth reuses your host `az login` via a read-only ~/.azure mount.
 # Local development only — Phase 4 replaces this with a managed identity.
@@ -50,6 +50,20 @@ services:
       # The api creates the jobs table on startup.
       api:
         condition: service_healthy
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: azure-market-intel-agent-ui:local
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   postgres:
     image: postgres:16
