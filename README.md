@@ -269,7 +269,40 @@ uv run pytest          # no network: SQLite, in-memory checkpointer, mocked LLM/
 uv run ruff check app ingestion mcp_news tests ui
 uv run mypy app ingestion mcp_news tests --ignore-missing-imports
 uv run --group ui mypy ui --ignore-missing-imports   # the UI is a separate program
+uv run python -m evals.run --smoke                   # eval gate (real model calls)
 ```
+
+## Evaluation
+
+A hand-written golden set ([`evals/golden_set.yaml`](evals/golden_set.yaml))
+has 30 questions: 12 factual, 8 comparative, 5 year-over-year and **5
+unanswerable**. Every answer is quoted from a cited page of the filings. For
+each question the harness retrieves, answers once from exactly those chunks,
+then scores the result:
+
+- **RAGAS 0.4:** context precision and recall, faithfulness, answer relevancy.
+  It runs in its own environment ([`evals/ragas/`](evals/ragas/)) because
+  RAGAS needs `openai<3` and the app uses openai 3.x.
+- **Plain Python:** citation validity (cited ids ⊆ retrieved ids) and
+  abstention (declining the unanswerable questions instead of inventing a
+  number).
+
+```bash
+uv run python -m evals.run                         # all 30 → results/<variant>-<timestamp>.json + .md
+uv run python -m evals.run --smoke                 # 5 questions; exits 1 below evals/thresholds.yaml (CI gate)
+```
+
+**Baseline** (vector retrieval, top-8; [`results/baseline-vector.md`](results/baseline-vector.md)):
+
+| context precision | context recall | faithfulness | citation validity | abstention | false abstention | retrieval p95 | cost/query |
+|---|---|---|---|---|---|---|---|
+| 0.556 | 0.807 | 0.967 | 95.2% | **100%** | 16% | 805 ms | $0.0016 |
+
+It declined every unanswerable question. Three of its four declines on
+answerable questions were retrieval misses on exact-figure lookups (employee
+counts, a stated growth rate); in each case it declined rather than guessing.
+The judge is the same gpt-5-mini deployment that produces the answers, so
+treat the RAGAS numbers as relative (variant vs variant), not absolute.
 
 ## Web UI (Streamlit)
 
@@ -412,6 +445,8 @@ app/
 ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
 mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
 ui/                             Streamlit client (app.py, api_client.py, Dockerfile)
+evals/                          golden set, eval harness, thresholds; ragas/ = isolated scorer
+results/                        committed eval runs (baseline-vector.json/.md)
 tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
 docs/                           specs, ADRs 0001–0003 and 0007, media/ (demo clips)
 Dockerfile, docker-compose.yml  runtime + local images; full local stack

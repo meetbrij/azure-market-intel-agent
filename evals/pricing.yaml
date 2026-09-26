@@ -1,0 +1,10 @@
+# USD per 1M tokens, used for cost/query in eval results. List prices for the
+# model families behind the deployments (Azure OpenAI global standard);
+# check them against your region and SKU before quoting a cost figure.
+chat:
+  model: gpt-5-mini
+  input_per_million: 0.25
+  output_per_million: 2.00
+embedding:
+  model: text-embedding-3-small
+  input_per_million: 0.02

@@ -1,0 +1,15 @@
+# CI eval gate: `uv run python -m evals.run --smoke` runs these 5 questions and
+# exits non-zero if either metric falls below its threshold.
+smoke_ids: [q002, q012, q014, q023, q029]  # factual x2, comparative, temporal, unanswerable
+
+# Set from measurements (2026-09-26, vector retrieval, chat-mini): the smoke
+# set scored faithfulness 1.00 in all 4 runs (3 smoke runs + the baseline's
+# smoke subset), and citation validity 1.00, 1.00, 1.00 and 0.857.
+#
+# faithfulness: 10% below the measured 1.00.
+faithfulness: 0.90
+# citation_validity: the smoke set yields ~7 citations, so one malformed id
+# (seen once: "microsoft-annual-report-208" for "...-10k-208") costs 14
+# points. 0.80 tolerates one slip, which is normal variance, and fails on two.
+# A flat "10% below 1.00" (0.90) would have failed one of four normal runs.
+citation_validity: 0.80
