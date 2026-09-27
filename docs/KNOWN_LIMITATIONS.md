@@ -1,6 +1,6 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 13. Each
+Trade-offs we accepted on purpose, and gaps we know about, as of Day 14. Each
 entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
@@ -35,8 +35,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
-| **Retrieval misses exact-figure lookups.** In the baseline, 3 of 4 wrongly declined questions were chunks not retrieved (e.g. "1,576,000 employees"). | Medium | It declines rather than guessing; that is the safe failure | Day 14: hybrid (BM25) and semantic ranking, measured |
-| Context precision is 0.556: about half of the top-8 chunks are noise | Medium | Baseline; not tuned yet, per the spec | Day 14: semantic reranker |
+| **Semantic ranker quota:** the Free plan allows 1,000 semantic queries a month, roughly 50–200 reports | Medium | Automatic fallback to hybrid (recall 0.95), recorded per query | The Standard semantic plan (billed per 1,000 queries) for real usage |
 | The critic is rarely fully satisfied, so two passes (and two approvals) are common | Low | The loop is capped at 2; the cost is bounded | Phase 3 evals: decide whether the second pass pays off |
 | The compact brief sometimes leaves out filing references; the safety net adds them back | Low | The writer still sees every reference and cites correctly | Tune the compact prompt; measure with evals |
 | The writer occasionally still adds a section saying news is unavailable | Low | `data_gaps` records it reliably anyway | Prompt tuning |
@@ -50,7 +49,8 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
 | **The judge is the model being judged**: RAGAS uses the same gpt-5-mini deployment | Medium | Only one chat deployment; comparing variants is still fair | A second judge deployment from a different model family |
-| Small samples: 30 questions; the smoke gate sees about 7 citations | Medium | The spec's size; thresholds account for it (D-44) | Grow the golden set; repeat runs |
+| Small samples: 30 questions; the smoke gate sees about 8 citations. Run-to-run noise is about ±0.05 on RAGAS metrics, and each variant was run once. | Medium | The spec's size; thresholds account for it (D-44); the benchmark's gains are several times the noise | Grow the golden set; repeat runs and report spread |
+| Latency p95s come from a single run of 30 sequential queries on a shared Free-tier service; end-to-end p95 varied 5.7–16.4 s between equal runs | Low | Medians are stable; retrieval is a small part of what users wait for | Repeat runs; measure under load on the deployed service |
 | The golden set was written by one author, from the filing text | Low | Answers are quoted and page-cited, so they can be checked | A human review pass |
 | The eval gives each question its company filter; the real system's planner picks companies itself | Low | It isolates the retriever, as the spec asks | A full-graph eval variant |
 | "Expected page retrieved" is page-level and overstates hits (a page spans several chunks) | Low | Labelled as such; chunk-level recall comes from RAGAS | Expected-snippet matching |
@@ -62,8 +62,15 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
 | The corpus is three annual 10-Ks; no quarterly data | Low | A deliberate scope decision (D-07) | — |
-| The AI Search Free tier is at **67% of 50 MB**; re-ingesting (upserting) grows storage until the service compacts | Medium | Enough for 3 filings; avoid frequent re-ingests | A larger tier, or 512-dimension embeddings |
+| The AI Search Free tier is at **62% of 50 MB** (after the Day 14 rebuild, with the `title` field); re-ingesting (upserting) grows storage until the service compacts | Medium | Enough for 3 filings; prefer `--recreate` to repeated upserts | A larger tier, or 512-dimension embeddings |
 | Low model quotas make jobs slow (a report takes 3–6 minutes; the full eval about 21) | Low | A cost choice on a dev subscription | Higher TPM, or parallelism in the eval |
 | Adding a company means editing the alias list in `ingestion/parse.py` | Low | Three companies | Read the issuer from the cover page only, or from configuration |
 | The jobs list has no pagination (limit ≤ 200) | Low | Demo volumes | Cursor pagination |
 | The local image is 773 MB (it includes the Azure CLI); the UI image is 569 MB | Low | Local only; the runtime image is 355 MB | Day 17: image hardening |
+
+## Resolved
+
+| Limitation | Resolved | How |
+|---|---|---|
+| Retrieval missed exact-figure lookups (e.g. "1,576,000 employees"), so 16% of answerable questions were declined | Day 14 | Hybrid + semantic ranking: 0% wrongly declined, expected page retrieved 100% |
+| Context precision of 0.556 (about half the top-8 chunks were noise) | Day 14 | Semantic ranker: 0.806 |

@@ -5,6 +5,10 @@ from azure.search.documents.indexes.models import (
     SearchableField,
     SearchField,
     SearchIndex,
+    SemanticConfiguration,
+    SemanticField,
+    SemanticPrioritizedFields,
+    SemanticSearch,
     SimpleField,
     VectorSearch,
     VectorSearchProfile,
@@ -19,10 +23,15 @@ INT32 = "Edm.Int32"
 VECTOR = "Collection(Edm.Single)"
 
 
-def build_index(name: str, dimensions: int) -> SearchIndex:
+def build_index(name: str, dimensions: int, semantic_config: str) -> SearchIndex:
+    """semantic_config names the configuration the hybrid_semantic retrieval
+    mode queries (Settings.semantic_configuration)."""
     fields = [
         SimpleField(name="id", type=STRING, key=True),
         SearchableField(name="content", type=STRING),
+        # "Amazon 10-K 2025-12-31 p.27": gives BM25 and the semantic ranker the
+        # filing and page each chunk comes from.
+        SearchableField(name="title", type=STRING),
         SearchField(
             name="content_vector",
             type=VECTOR,
@@ -50,4 +59,20 @@ def build_index(name: str, dimensions: int) -> SearchIndex:
             )
         ],
     )
-    return SearchIndex(name=name, fields=fields, vector_search=vector_search)
+    semantic_search = SemanticSearch(
+        configurations=[
+            SemanticConfiguration(
+                name=semantic_config,
+                prioritized_fields=SemanticPrioritizedFields(
+                    title_field=SemanticField(field_name="title"),
+                    content_fields=[SemanticField(field_name="content")],
+                ),
+            )
+        ]
+    )
+    return SearchIndex(
+        name=name,
+        fields=fields,
+        vector_search=vector_search,
+        semantic_search=semantic_search,
+    )

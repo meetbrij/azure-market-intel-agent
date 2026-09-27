@@ -157,3 +157,19 @@ def test_summary_separates_answerable_and_unanswerable() -> None:
     assert out["false_abstention_rate"] == 0.5  # a2 declined an answerable one
     assert out["by_category"]["unanswerable"]["abstention_rate"] == 0.5
     assert out["context_recall"] is None  # not scored in this run
+
+
+def test_semantic_fallbacks_only_count_for_semantic_runs() -> None:
+    samples = [
+        sample(retrieval_modes=["hybrid"]),
+        sample(id="q2", retrieval_modes=["hybrid_semantic"]),
+    ]
+    items = {"q1": item(id="q1"), "q2": item(id="q2")}
+    pricing = load_pricing()
+    assert (
+        summarize(samples, items, {}, pricing, "hybrid_semantic")["semantic_fallbacks"]
+        == 1
+    )
+    assert (
+        summarize(samples, items, {}, pricing, "hybrid")["semantic_fallbacks"] is None
+    )

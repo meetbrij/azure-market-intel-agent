@@ -1,6 +1,7 @@
 """All environment access lives here."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,6 +49,13 @@ class Settings(BaseSettings):
     retry_attempts: int = 4
     retry_base_wait_s: float = 1.0
     node_timeout_s: float = 300.0
+
+    # How chunks are retrieved: vector only, hybrid (BM25 + vector fused with
+    # RRF), or hybrid_semantic (hybrid, then the semantic ranker reranks).
+    # See docs/retrieval-benchmark.md for the measured trade-off.
+    retrieval_mode: Literal["vector", "hybrid", "hybrid_semantic"] = "hybrid_semantic"
+    # Semantic configuration defined in the index (ingestion/index_schema.py).
+    semantic_configuration: str = "filings-semantic"
 
     # Chunks per sub-question (per company when several are requested).
     retrieval_top_k: int = 4

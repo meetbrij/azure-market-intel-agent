@@ -107,8 +107,13 @@ def ensure_index(recreate: bool) -> None:
         except ResourceNotFoundError:
             pass
     dims = len(embed(["dimension probe"])[0])
-    idx.create_index(build_index(s.azure_search_index, dims))
-    log.info("Created index %s (vector dims=%d, HNSW)", s.azure_search_index, dims)
+    idx.create_index(build_index(s.azure_search_index, dims, s.semantic_configuration))
+    log.info(
+        "Created index %s (vector dims=%d, HNSW; semantic config %r)",
+        s.azure_search_index,
+        dims,
+        s.semantic_configuration,
+    )
 
 
 def upload(docs: list[dict[str, Any]]) -> None:
@@ -162,6 +167,7 @@ def ingest_blob(blob_name: str) -> int:
         {
             "id": f"{key}-{c.chunk_no}",
             "content": c.text,
+            "title": f"{meta.company} {meta.doc_type} {meta.period} p.{c.page}",
             "content_vector": v,
             "company": meta.company,
             "ticker": meta.ticker,

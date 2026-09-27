@@ -64,6 +64,7 @@ def summarize(
     items: dict[str, GoldenItem],
     ragas: dict[str, dict[str, float | None]],
     pricing: dict[str, dict[str, Any]],
+    variant: str = "vector",
 ) -> dict[str, Any]:
     answerable = [s for s in samples if s.answerable]
     unanswerable = [s for s in samples if not s.answerable]
@@ -88,6 +89,13 @@ def summarize(
         "retrieval_p95_ms": percentile([s.retrieval_ms for s in samples], 95),
         "end_to_end_p95_ms": percentile(
             [s.retrieval_ms + s.answer_ms for s in samples], 95
+        ),
+        # Questions a hybrid_semantic run had to serve with plain hybrid
+        # (semantic ranker unavailable). Not applicable to other variants.
+        "semantic_fallbacks": (
+            sum("hybrid_semantic" not in s.retrieval_modes for s in samples)
+            if variant == "hybrid_semantic"
+            else None
         ),
         "cost_per_query_usd": mean(cost_usd(s, pricing) for s in samples)
         if samples

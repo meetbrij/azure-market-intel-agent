@@ -1,8 +1,8 @@
 {
   "meta": {
-    "name": "baseline-vector",
-    "timestamp": "2026-09-26T07:39:39+00:00",
-    "git_commit": "e455495",
+    "name": "bench-vector",
+    "timestamp": "2026-09-27T13:44:36+00:00",
+    "git_commit": "010b727",
     "variant": "vector",
     "top_k": 8,
     "concurrency": 1,
@@ -35,50 +35,50 @@
     "n": 30,
     "n_answerable": 25,
     "n_unanswerable": 5,
-    "context_precision": 0.5556607503297222,
-    "context_recall": 0.8066666666666666,
+    "context_precision": 0.5417242423944794,
+    "context_recall": 0.8466666666666667,
     "faithfulness": 0.9666666666666667,
-    "answer_relevancy": 0.7877726375576434,
-    "citation_validity": 0.9523809523809523,
+    "answer_relevancy": 0.8063204813136194,
+    "citation_validity": 1.0,
     "abstention_rate": 1.0,
     "false_abstention_rate": 0.16,
     "source_hit_rate": 1.0,
     "page_hit_rate": 0.8,
-    "retrieval_p50_ms": 490.77591601235326,
-    "retrieval_p95_ms": 804.8808330058819,
-    "end_to_end_p95_ms": 10173.133958000108,
+    "retrieval_p50_ms": 538.7875410000333,
+    "retrieval_p95_ms": 1095.3347089999852,
+    "end_to_end_p95_ms": 16367.516625000007,
     "semantic_fallbacks": null,
-    "cost_per_query_usd": 0.0016089466666666667,
+    "cost_per_query_usd": 0.0016922133333333333,
     "by_category": {
       "factual": {
         "n": 12,
         "context_precision": 0.467675264520562,
-        "context_recall": 0.7916666666666666,
+        "context_recall": 0.8333333333333334,
         "faithfulness": 0.9305555555555556,
-        "answer_relevancy": 0.7503082331975865,
+        "answer_relevancy": 0.8366764738161727,
         "source_hit_rate": 1.0,
         "false_abstention_rate": 0.25,
-        "citation_validity": 0.9333333333333333
+        "citation_validity": 1.0
       },
       "comparative": {
         "n": 8,
-        "context_precision": 0.5946987734201902,
+        "context_precision": 0.5301154400870547,
         "context_recall": 0.8333333333333334,
         "faithfulness": 1.0,
-        "answer_relevancy": 0.7874805885828877,
+        "answer_relevancy": 0.7147427471716287,
         "source_hit_rate": 1.0,
         "false_abstention_rate": 0.125,
         "citation_validity": 1.0
       },
       "temporal": {
         "n": 5,
-        "context_precision": 0.7043650793269576,
-        "context_recall": 0.8,
+        "context_precision": 0.7380158729837605,
+        "context_recall": 0.9,
         "faithfulness": 1.0,
-        "answer_relevancy": 0.8781544863813889,
+        "answer_relevancy": 0.8799904739346768,
         "source_hit_rate": 1.0,
         "false_abstention_rate": 0.0,
-        "citation_validity": 0.9
+        "citation_validity": 1.0
       },
       "unanswerable": {
         "n": 5,
@@ -91,14 +91,14 @@
     "q001": {
       "context_precision": 0.0,
       "context_recall": 0.0,
-      "faithfulness": 0.5,
-      "answer_relevancy": 0.0
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.6511253283806268
     },
     "q002": {
       "context_precision": 0.5317460317283068,
       "context_recall": 1.0,
-      "faithfulness": 1.0,
-      "answer_relevancy": 0.866567356062064
+      "faithfulness": 0.5,
+      "answer_relevancy": 0.9359275418007748
     },
     "q003": {
       "context_precision": 0.22499999998875,
@@ -110,7 +110,7 @@
       "context_precision": 0.19999999998,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8568587695461048
+      "answer_relevancy": 0.8576015052966014
     },
     "q005": {
       "context_precision": 0.642857142825,
@@ -121,26 +121,26 @@
     "q006": {
       "context_precision": 0.9999999999,
       "context_recall": 1.0,
-      "faithfulness": 1.0,
-      "answer_relevancy": 0.6348308120087309
+      "faithfulness": 0.6666666666666666,
+      "answer_relevancy": 0.0
     },
     "q007": {
       "context_precision": 0.6791666666496875,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 1.0000000000000002
+      "answer_relevancy": 0.9867861815950829
     },
     "q008": {
       "context_precision": 0.49999999995,
-      "context_recall": 0.5,
+      "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8693106477784363
+      "answer_relevancy": 0.886763350959065
     },
     "q009": {
       "context_precision": 0.0,
       "context_recall": 0.0,
-      "faithfulness": 0.6666666666666666,
-      "answer_relevancy": 0.0
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.9445243103971905
     },
     "q010": {
       "context_precision": 0.6666666666333333,
@@ -152,7 +152,7 @@
       "context_precision": 0.3333333333,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.9596223397386899
+      "answer_relevancy": 0.9608805941277189
     },
     "q012": {
       "context_precision": 0.8333333332916666,
@@ -164,79 +164,79 @@
       "context_precision": 0.49718614717786075,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8202040904970455
+      "answer_relevancy": 0.7232496828838973
     },
     "q014": {
       "context_precision": 0.42234848483792614,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8688274014727452
+      "answer_relevancy": 0.8523248898583166
     },
     "q015": {
-      "context_precision": 0.8083333333171667,
+      "context_precision": 0.2916666666520833,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8357851738155767
+      "answer_relevancy": 0.8341866639159156
     },
     "q016": {
       "context_precision": 0.49999999995,
       "context_recall": 0.3333333333333333,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7782235689173813
+      "answer_relevancy": 0.8262977027731538
     },
     "q017": {
       "context_precision": 0.9999999999,
       "context_recall": 0.3333333333333333,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7516813587179332
+      "answer_relevancy": 0.0
     },
     "q018": {
       "context_precision": 0.2602777777725722,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7953285596761356
+      "answer_relevancy": 0.841971532407597
     },
     "q019": {
       "context_precision": 0.4638888888772917,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7444810197946481
+      "answer_relevancy": 0.8726280663013394
     },
     "q020": {
       "context_precision": 0.8055555555287036,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7053135357716362
+      "answer_relevancy": 0.76728343923281
     },
     "q021": {
-      "context_precision": 0.5317460317283068,
+      "context_precision": 0.8928571428348213,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.7328652907319227
+      "answer_relevancy": 0.7773450282340946
     },
     "q022": {
       "context_precision": 0.8055555555287036,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.9141867679256513
+      "answer_relevancy": 0.9218814671620322
     },
     "q023": {
-      "context_precision": 0.3928571428375,
-      "context_recall": 0.0,
+      "context_precision": 0.49999999995,
+      "context_recall": 0.5,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.8370729383099013
+      "answer_relevancy": 0.8325239086019088
     },
     "q024": {
-      "context_precision": 0.9999999999,
+      "context_precision": 0.699999999965,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.920700971629666
+      "answer_relevancy": 0.8832798022307142
     },
     "q025": {
       "context_precision": 0.7916666666402777,
       "context_recall": 1.0,
       "faithfulness": 1.0,
-      "answer_relevancy": 0.9859464633098033
+      "answer_relevancy": 0.9849221634446342
     }
   },
   "ragas_errors": {},
@@ -304,17 +304,20 @@
         "Table of Contents\nAvailable Information\nOur investor relations website is amazon.com/ir and we encourage investors to use it as a way of easily finding information about us. We\npromptly make available on this website, free of charge, the reports that we file or furnish with the Securities and Exchange Commission\n(\u201cSEC\u201d), corporate governance information (including our Code of Business Conduct and Ethics), and select press releases.\nExecutive Officers and Directors\nThe following tables set forth certain information regarding our Executive Officers and Directors as of January 28, 2026:\nInformation About Our Executive Officers\nName Age Position\nJeffrey P. Bezos 62 Executive Chair\nAndrew R. Jassy 58 President and Chief Executive Officer\nMatthew S. Garman 49 CEO Amazon Web Services\nDouglas J. Herrington 59 CEO Worldwide Amazon Stores\nBrian T. Olsavsky 62 Senior Vice President and Chief Financial Officer",
         "4.8 Officers\u2019 Certificate of Amazon.com, Inc., dated as of November 20, 2025, containing Form of 3.900% Note due 2028, Form of\n4.100% Note due 2030, Form of 4.350% Note due 2033, Form of 4.650% Note due 2035, Form of 5.450% Note due 2055, and\nForm of 5.550% Note due 2065 (incorporated by reference to the Company\u2019s Current Report on Form 8-K, filed November 20,\n2025).\n4.9 Description of Securities (incorporated by reference to the Company\u2019s Annual Report on Form 10-K for the Year ended December\n31, 2019).\n10.1\u2020 1997 Stock Incentive Plan (amended and restated) (incorporated by reference to the Company\u2019s Quarterly Report on Form 10-Q for\nthe Quarter ended June 30, 2022).\n10.2\u2020 1999 Nonofficer Employee Stock Option Plan (amended and restated) (incorporated by reference to the Company\u2019s Quarterly\nReport on Form 10-Q for the Quarter ended June 30, 2022).\n10.3\u2020 Form of Indemnification Agreement between Amazon.com, Inc. and each of its Directors (incorporated by reference to Exhibit"
       ],
-      "answer": "I abstain \u2014 the provided filing excerpts do not state the number of employees as of December 31, 2025.",
+      "answer": "The provided filings do not contain the number of employees as of December 31, 2025.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 511.7055419977987,
-      "answer_ms": 2467.908416991122,
+      "retrieval_ms": 417.3906660000739,
+      "answer_ms": 2707.610458999966,
       "prompt_tokens": 2175,
-      "completion_tokens": 179,
+      "completion_tokens": 238,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -380,7 +383,7 @@
         "Table of Contents\nNet sales by groups of similar products and services, which also have similar economic characteristics, is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNet Sales:\nOnline stores (1) $ 231,872 $ 247,029 $ 269,287 \nPhysical stores (2) 20,030 21,215 22,561 \nThird-party seller services (3) 140,053 156,146 172,162 \nAdvertising services (4) 46,906 56,214 68,635 \nSubscription services (5) 40,209 44,374 49,619 \nAWS 90,757 107,556 128,725 \nOther (6) 4,958 5,425 5,935 \nConsolidated $ 574,785 $ 637,959 $ 716,924 \n___________________\n(1) Includes product sales and digital media content where we record revenue gross. We leverage our retail infrastructure to offer a wide\nselection of consumable and durable goods that includes media products available in both a physical and digital format, such as books,\nvideos, games, music, and software. These product sales include digital products sold on a transactional basis. Digital media content",
         "to five years. The shorter useful lives are due to the increased pace of technology development, particularly in the area of artificial intelligence\nand machine learning. The effect of this change in estimate for the year ended December 31, 2025, based on servers and networking equipment\nthat were included in \u201cProperty and equipment, net\u201d as of December 31, 2024 and those acquired during the year ended December 31, 2025, was\nan increase in depreciation and amortization expense of $1.4 billion and a reduction in net income of $1.0 billion, or $0.10 per basic share and\n$0.10 per diluted share, which primarily impacted our AWS segment.\nDuring Q3 2025, we recorded $2.5 billion of expense related to the settlement of a lawsuit with the FTC. This charge was recorded in\n\u201cOther operating expense (income), net\u201d and impacted our North America segment.\nDuring Q4 2025, we recorded $2.4 billion of expense related to settlements of a lawsuit and tax disputes, severance costs, and asset"
       ],
-      "answer": "AWS net sales for the year ended December 31, 2025 were $128,725 million.",
+      "answer": "Amazon Web Services (AWS) net sales for the year ended December 31, 2025 were $128,725 million.",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-142",
@@ -390,13 +393,16 @@
         "amzn-annual-report-10k-142",
         "amzn-annual-report-10k-333"
       ],
-      "retrieval_ms": 458.6152080009924,
-      "answer_ms": 2892.2153339954093,
+      "retrieval_ms": 491.68937500007814,
+      "answer_ms": 3427.3331249999046,
       "prompt_tokens": 2257,
-      "completion_tokens": 325,
+      "completion_tokens": 330,
       "embed_tokens_est": 13,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -462,7 +468,7 @@
         "to five years. The shorter useful lives are due to the increased pace of technology development, particularly in the area of artificial intelligence\nand machine learning. The effect of this change in estimate for the year ended December 31, 2025, based on servers and networking equipment\nthat were included in \u201cProperty and equipment, net\u201d as of December 31, 2024 and those acquired during the year ended December 31, 2025, was\nan increase in depreciation and amortization expense of $1.4 billion and a reduction in net income of $1.0 billion, or $0.10 per basic share and\n$0.10 per diluted share, which primarily impacted our AWS segment.\nDuring Q3 2025, we recorded $2.5 billion of expense related to the settlement of a lawsuit with the FTC. This charge was recorded in\n\u201cOther operating expense (income), net\u201d and impacted our North America segment.\nDuring Q4 2025, we recorded $2.4 billion of expense related to settlements of a lawsuit and tax disputes, severance costs, and asset",
         "government agencies, and academic institutions.\nInformation on reportable segments and reconciliation to consolidated net income is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNorth America\nNet sales $ 352,828 $ 387,497 $ 426,305 \nOperating expenses 337,951 362,530 396,686 \nOperating income $ 14,877 $ 24,967 $ 29,619 \nInternational\nNet sales $ 131,200 $ 142,906 $ 161,894 \nOperating expenses 133,856 139,114 157,144 \nOperating income (loss) $ (2,656) $ 3,792 $ 4,750 \nAWS\nNet sales $ 90,757 $ 107,556 $ 128,725 \nOperating expenses 66,126 67,722 83,119 \nOperating income $ 24,631 $ 39,834 $ 45,606 \nConsolidated\nNet sales $ 574,785 $ 637,959 $ 716,924 \nOperating expenses 537,933 569,366 636,949 \nOperating income 36,852 68,593 79,975 \nTotal non-operating income 705 21 17,336 \nProvision for income taxes (7,120) (9,265) (19,087)\nEquity-method investment activity, net of tax (12) (101) (554)\nNet income $ 30,425 $ 59,248 $ 77,670 \n68"
       ],
-      "answer": "Amazon's net income for the year ended December 31, 2025 was $77,670 million.",
+      "answer": "Amazon\u2019s net income for the year ended December 31, 2025 was $77,670 million.",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-332"
@@ -470,13 +476,16 @@
       "valid_citations": [
         "amzn-annual-report-10k-332"
       ],
-      "retrieval_ms": 497.1642080054153,
-      "answer_ms": 2969.3342499958817,
+      "retrieval_ms": 468.89770799998587,
+      "answer_ms": 3187.7723339999875,
       "prompt_tokens": 2371,
-      "completion_tokens": 251,
+      "completion_tokens": 315,
       "embed_tokens_est": 9,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -542,7 +551,7 @@
         "attorneys\u2019 fees, and costs. Some of the private plaintiff cases include allegations of distinct purported classes, including consumers who\npurchased a product through Amazon\u2019s stores and consumers who purchased a product offered by Amazon through another e-commerce retailer.\nSome of the cases include allegations that Amazon has a monopoly in markets for online superstores, marketplace services, or intermediation\nservices and that we unlawfully engage in anticompetitive practices relating to our pricing policies, selection of the Featured Offers, use of seller\ndata, advertising practices, the structure of Prime, and promotion of our own products on our website. In the U.S., most of Amazon\u2019s motions to\ndismiss were granted in part, but in each case, at least some of the claims survived. In Canada, class certification was denied in a case before the",
         "marketplaces with respect to third-party sellers, and (iii) the adequacy of compliance with reporting obligations, including evolving\ndocumentation requirements. Due to the inherent complexity and uncertainty of these matters and the judicial and regulatory processes in certain\njurisdictions, the final outcome of any such controversies may be materially different from our expectations.\nLegal Proceedings\nThe Company is involved from time to time in claims, proceedings, and litigation, including the following:\nIn May 2018, Rensselaer Polytechnic Institute and CF Dynamic Advances LLC filed a complaint against Amazon.com, Inc. in the United\nStates District Court for the Northern District of New York. The complaint alleged, among other things, that \u201cAlexa Voice Software and Alexa\nenabled devices\u201d infringe U.S. Patent No. 7,177,798. The complaint sought an injunction, an unspecified amount of damages, enhanced damages,"
       ],
-      "answer": "During Q3 2025, Amazon recorded $2.5 billion of expense related to the settlement of a lawsuit with the FTC. The charge was recorded in \u201cOther operating expense (income), net\u201d and impacted the North America segment.",
+      "answer": "During Q3 2025 Amazon recorded a $2.5 billion expense related to the settlement of a lawsuit with the FTC. The charge was recorded in \u201cOther operating expense (income), net\u201d and impacted the North America segment. ",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-202"
@@ -550,13 +559,16 @@
       "valid_citations": [
         "amzn-annual-report-10k-202"
       ],
-      "retrieval_ms": 604.0011670120293,
-      "answer_ms": 2439.215415986837,
+      "retrieval_ms": 679.5604170000615,
+      "answer_ms": 2826.5095409999503,
       "prompt_tokens": 2045,
       "completion_tokens": 213,
       "embed_tokens_est": 19,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -632,13 +644,16 @@
         "googl-annual-report-10k-36",
         "googl-annual-report-10k-190"
       ],
-      "retrieval_ms": 465.70091700414196,
-      "answer_ms": 1995.5585829884512,
+      "retrieval_ms": 434.3675410000287,
+      "answer_ms": 2985.3692499999624,
       "prompt_tokens": 2142,
-      "completion_tokens": 194,
+      "completion_tokens": 258,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -704,17 +719,20 @@
         "Table of Contents Alphabet Inc.\nAlphabet Inc.\nCONSOLIDATED STATEMENTS OF CASH FLOWS\n(in millions)\n Year Ended December 31,\n 2023 2024 2025\nOperating activities\nNet income $ 73,795 $ 100,118 $ 132,170 \nAdjustments:\nDepreciation of property and equipment 11,946 15,311 21,136 \nStock-based compensation expense 22,460 22,785 24,953 \nDeferred income taxes (7,763) (5,257) 8,348 \nLoss (gain) on debt and equity securities, net 823 (2,671) (24,620)\nOther 4,330 3,419 2,108 \nChanges in assets and liabilities, net of effects of acquisitions:\nAccounts receivable, net (7,833) (5,891) (8,779)\nIncome taxes, net 523 (2,418) (3,226)\nOther assets (2,143) (1,397) (4,542)\nAccounts payable 664 359 907 \nAccrued expenses and other liabilities 3,937 (1,161) 12,939 \nAccrued revenue share 482 1,059 899 \nDeferred revenue 525 1,043 2,420 \nNet cash provided by operating activities 101,746 125,299 164,713 \nInvesting activities\nPurchases of property and equipment (32,251) (52,535) (91,447)",
         "Table of Contents Alphabet Inc.\n\u2022 In 2025, we entered into definitive agreements to acquire Wiz, a leading cloud security platform, for $32.0 billion, and\nIntersect, a provider of data center and energy infrastructure solutions, for $4.8 billion in cash plus the assumption of debt.\nBoth acquisitions are expected to close in 2026, subject to customary closing conditions, including the receipt of regulatory\napprovals.\n\u2022 In 2025, we issued senior unsecured notes for net proceeds of $37.3 billion, to be used for general corporate purposes.\n\u2022 OI&E of $29.8 billion for the year ended December 31, 2025 included net gains on equity securities of $24.1 billion,\nprimarily related to unrealized gains on our non-marketable equity securities.\n\u2022 Other Bets operating loss of $7.5 billion for the year ended December 31, 2025 included a $2.1 billion employee\ncompensation charge recognized in the fourth quarter for Waymo, primarily reflected in research and development"
       ],
-      "answer": "The filings show total revenues of $402,836 million for the year ended December 31, 2025. The filings provided do not state how much revenues grew (the growth amount is not specified in the provided excerpts).",
+      "answer": "Alphabet\u2019s total revenues for 2025 were $402,836 million. The filings provided do not state how much those revenues grew (the change or growth rate), so I cannot provide the growth amount or percentage.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 419.65550000895746,
-      "answer_ms": 7599.218999996083,
+      "retrieval_ms": 502.95375000007425,
+      "answer_ms": 9044.349334000002,
       "prompt_tokens": 2520,
-      "completion_tokens": 1096,
+      "completion_tokens": 1093,
       "embed_tokens_est": 18,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -780,25 +798,30 @@
         "Table of Contents Alphabet Inc.\n$3.5 billion in the third quarter of 2025, and we placed bank guarantees in the fourth quarter of 2025 in lieu of cash\npayment.\nIn September 2024, the UK also issued a Statement of Objections concerning Google's advertising technology and its\ncompliance with UK antitrust laws, to which we responded.\n\u2022 Google Play: In July 2021, a number of state Attorneys General filed a lawsuit in the US District Court for the Northern\nDistrict of California concerning Google\u2019s operation of Android and Google Play and its compliance with US antitrust laws\nand state antitrust and consumer protection laws. In September 2023, we reached a settlement in principle with 50 state\nAttorneys General and three territories and recognized a charge. The court preliminarily approved the settlement in\nNovember 2025, and final approval remains pending before the court. In May 2024, we funded the settlement amount to an\nescrow agent.",
         "Table of Contents Alphabet Inc.\nAlphabet Inc.\nNOTES TO CONSOLIDATED FINANCIAL STATEMENTS\nNote 1. Summary of Significant Accounting Policies\nNature of Operations\nGoogle was incorporated in California in September 1998 and re-incorporated in the State of Delaware in August 2003. In\n2015, we implemented a holding company reorganization, and as a result, Alphabet Inc. (\"Alphabet\") became the successor issuer\nto Google.\nWe generate revenues by delivering relevant, cost-effective online advertising; cloud-based solutions that provide enterprise\ncustomers of all sizes with infrastructure, platform services, and applications; and sales of other products and services, such as fees\nreceived for subscription-based products, apps and in-app purchases, and devices.\nBasis of Consolidation\nThe consolidated financial statements of Alphabet include the accounts of Alphabet and entities consolidated under the"
       ],
-      "answer": "Alphabet agreed to acquire Wiz for $32.0 billion, subject to closing adjustments, in an all\u2011cash transaction.",
+      "answer": "Alphabet agreed to acquire Wiz for $32.0 billion, subject to closing adjustments, in an all\u2011cash transaction (the acquisition is expected to close in 2026).",
       "abstained": false,
       "citations": [
+        "googl-annual-report-10k-188",
         "googl-annual-report-10k-221",
         "googl-annual-report-10k-353",
-        "googl-annual-report-10k-188"
+        "googl-annual-report-10k-220"
       ],
       "valid_citations": [
+        "googl-annual-report-10k-188",
         "googl-annual-report-10k-221",
         "googl-annual-report-10k-353",
-        "googl-annual-report-10k-188"
+        "googl-annual-report-10k-220"
       ],
-      "retrieval_ms": 568.6252919986146,
-      "answer_ms": 2881.2617910007248,
+      "retrieval_ms": 580.3130829999645,
+      "answer_ms": 3998.7634999999955,
       "prompt_tokens": 2029,
-      "completion_tokens": 339,
+      "completion_tokens": 426,
       "embed_tokens_est": 12,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -872,13 +895,16 @@
       "valid_citations": [
         "googl-annual-report-10k-259"
       ],
-      "retrieval_ms": 515.0708749861224,
-      "answer_ms": 2690.8272080036113,
+      "retrieval_ms": 496.0058750000371,
+      "answer_ms": 3529.205208999997,
       "prompt_tokens": 2560,
-      "completion_tokens": 259,
+      "completion_tokens": 323,
       "embed_tokens_est": 12,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -944,17 +970,20 @@
         "PART II\nItem 7\n \n34\nITEM 7. MANAGEMENT\u2019S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF \nOPERATIONS\nThe following Management\u2019s Discussion and Analysis of Financial Condition and Results of Operations (\u201cMD&A\u201d) is intended to \nhelp the reader understand the results of operations and financial condition of Microsoft Corporation. MD&A is provided as a \nsupplement to, and should be read in conjunction with, our consolidated financial statements and the accompanying Notes to \nFinancial Statements (Part II, Item 8 of this Form 10-K). This section generally discusses the results of our operations for the year \nended June 30, 2026 compared to the year ended June 30, 2025. For a discussion of the year ended June 30, 2025 compared to \nthe year ended June 30, 2024, please refer to Part II, Item 7, \u201cManagement\u2019s Discussion and Analysis of Financial Condition and \nResults of Operations\u201d in our Annual Report on Form 10-K for the year ended June 30, 2025.\nOVERVIEW",
         "Reportable Segments\nFiscal Year 2026 Compared with Fiscal Year 2025 \nProductivity and Business Processes \nRevenue increased $19.2 billion or 16%.\n\u2022 Microsoft 365 Commercial products and cloud services revenue increased $14.2 billion or 16%. Microsoft 365 \nCommercial cloud revenue grew 17% with growth in revenue per user driven by Microsoft 365 Copilot and Microsoft \n365 E5. Microsoft 365 Commercial seats grew 6% driven by small and medium businesses and frontline worker \nofferings. Microsoft 365 Commercial products revenue grew 13% driven by growth in the Windows Commercial on-\npremises components of Microsoft 365 suite sales, as well as an increase in Office 2024 transactional purchasing.\n\u2022 Microsoft 365 Consumer products and cloud services revenue increased $1.8 billion or 24%. Microsoft 365 Consumer \ncloud revenue grew 28% driven by growth in revenue per user and Microsoft 365 Consumer subscriber growth of 7%."
       ],
-      "answer": "I abstain. The filings provided do not contain the number of people Microsoft employed as of June 30, 2026, so I cannot determine that figure from the supplied context.",
+      "answer": "The provided filing excerpts do not contain the number of people Microsoft employed as of June 30, 2026.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 513.7199170130771,
-      "answer_ms": 2155.8555829979014,
+      "retrieval_ms": 489.2255419999856,
+      "answer_ms": 2792.0818329999975,
       "prompt_tokens": 2345,
-      "completion_tokens": 255,
+      "completion_tokens": 241,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1020,22 +1049,26 @@
         "In the first quarter of fiscal year 2026, we made updates to our metrics to align with how we manage and monitor certain \nbusinesses. As part of these updates, Microsoft 365 Consumer subscribers was removed as a metric.\nCommercial\nOur commercial business primarily consists of Server products and cloud services, Microsoft 365 Commercial products and cloud \nservices, the commercial portion of LinkedIn, Dynamics products and cloud services, and Enterprise and partner services. Our \ncommercial metrics allow management and investors to assess the overall health of our commercial business and include leading \nindicators of future performance.\n \nCommercial remaining performance obligation \n \nCommercial portion of revenue allocated to remaining performance obligations, \nwhich includes unearned revenue and amounts that will be invoiced and \nrecognized as revenue in future periods\n   \nMicrosoft Cloud revenue and revenue growth",
         "cloud revenue grew 28% driven by growth in revenue per user and Microsoft 365 Consumer subscriber growth of 7%.\n\u2022 LinkedIn revenue increased $2.0 billion or 11% with growth across all lines of business.\n\u2022 Dynamics products and cloud services revenue increased $1.2 billion or 15% driven by growth in Dynamics 365. \nDynamics 365 revenue grew 18% with growth across all workloads."
       ],
-      "answer": "Microsoft Cloud revenue was $214.4 billion in fiscal year 2026.",
+      "answer": "Microsoft Cloud revenue in fiscal year 2026 was $214.4 billion.",
       "abstained": false,
       "citations": [
         "microsoft-annual-report-10k-186",
-        "microsoft-annual-report-391"
+        "microsoft-annual-report-10k-391"
       ],
       "valid_citations": [
-        "microsoft-annual-report-10k-186"
+        "microsoft-annual-report-10k-186",
+        "microsoft-annual-report-10k-391"
       ],
-      "retrieval_ms": 499.2824999935692,
-      "answer_ms": 3174.0002910082694,
+      "retrieval_ms": 697.1957079999811,
+      "answer_ms": 3698.488500000053,
       "prompt_tokens": 1914,
-      "completion_tokens": 317,
+      "completion_tokens": 320,
       "embed_tokens_est": 13,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1101,7 +1134,7 @@
         "Reportable Segments\nFiscal Year 2026 Compared with Fiscal Year 2025 \nProductivity and Business Processes \nRevenue increased $19.2 billion or 16%.\n\u2022 Microsoft 365 Commercial products and cloud services revenue increased $14.2 billion or 16%. Microsoft 365 \nCommercial cloud revenue grew 17% with growth in revenue per user driven by Microsoft 365 Copilot and Microsoft \n365 E5. Microsoft 365 Commercial seats grew 6% driven by small and medium businesses and frontline worker \nofferings. Microsoft 365 Commercial products revenue grew 13% driven by growth in the Windows Commercial on-\npremises components of Microsoft 365 suite sales, as well as an increase in Office 2024 transactional purchasing.\n\u2022 Microsoft 365 Consumer products and cloud services revenue increased $1.8 billion or 24%. Microsoft 365 Consumer \ncloud revenue grew 28% driven by growth in revenue per user and Microsoft 365 Consumer subscriber growth of 7%.",
         "PART II\nItem 7\n \n39\nOperating income increased $14.1 billion or 20%.\n\u2022 Cost of revenue increased $2.6 billion or 12% driven by investments in AI infrastructure to support Microsoft 365 Copilot \nseat and usage growth.\n\u2022 Gross margin increased $16.6 billion or 17% driven by growth in Microsoft 365 Commercial cloud. Gross margin \npercentage increased slightly primarily driven by efficiency gains in Microsoft 365 Commercial cloud, offset in part by \ncontinued investments in AI infrastructure and growing AI product usage.\n\u2022 Operating expenses increased $2.5 billion or 9% driven by continued investments in research and development \ncompute capacity, AI talent, and data to support product development that benefits the entire portfolio, as well as \ninvestments in commercial sales and higher Copilot advertising expenses.\nRevenue, gross margin, and operating income included a favorable foreign currency impact of 2%, 3%, and 3%, respectively.\nIntelligent Cloud"
       ],
-      "answer": "Microsoft\u2019s net income for fiscal year 2026 was $133,749 million (year ended June 30, 2026).",
+      "answer": "Microsoft's net income for fiscal year 2026 was $133,749.",
       "abstained": false,
       "citations": [
         "microsoft-annual-report-10k-200"
@@ -1109,13 +1142,16 @@
       "valid_citations": [
         "microsoft-annual-report-10k-200"
       ],
-      "retrieval_ms": 713.0424579954706,
-      "answer_ms": 3885.0507919996744,
+      "retrieval_ms": 530.8910839999044,
+      "answer_ms": 4710.8303750000005,
       "prompt_tokens": 2141,
-      "completion_tokens": 513,
+      "completion_tokens": 437,
       "embed_tokens_est": 13,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1191,13 +1227,16 @@
         "microsoft-annual-report-10k-186",
         "microsoft-annual-report-10k-208"
       ],
-      "retrieval_ms": 486.32333299610764,
-      "answer_ms": 2906.719874998089,
+      "retrieval_ms": 661.426792000043,
+      "answer_ms": 4536.89529199994,
       "prompt_tokens": 2010,
       "completion_tokens": 385,
       "embed_tokens_est": 23,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1312,7 +1351,7 @@
         "Table of Contents\nNorth America\nThe North America segment primarily consists of amounts earned from retail sales of consumer products (including from sellers) and\nadvertising and subscription services through North America-focused online and physical stores. This segment includes export sales from these\nonline stores.\nInternational\nThe International segment primarily consists of amounts earned from retail sales of consumer products (including from sellers) and\nadvertising and subscription services through internationally-focused online stores. This segment includes export sales from these internationally-\nfocused online stores (including export sales from these online stores to customers in the U.S., Mexico, and Canada), but excludes export sales\nfrom our North America-focused online stores.\nAWS\nThe AWS segment consists of amounts earned from global sales of compute, storage, database, and other services for start-ups, enterprises,\ngovernment agencies, and academic institutions.",
         "government agencies, and academic institutions.\nInformation on reportable segments and reconciliation to consolidated net income is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNorth America\nNet sales $ 352,828 $ 387,497 $ 426,305 \nOperating expenses 337,951 362,530 396,686 \nOperating income $ 14,877 $ 24,967 $ 29,619 \nInternational\nNet sales $ 131,200 $ 142,906 $ 161,894 \nOperating expenses 133,856 139,114 157,144 \nOperating income (loss) $ (2,656) $ 3,792 $ 4,750 \nAWS\nNet sales $ 90,757 $ 107,556 $ 128,725 \nOperating expenses 66,126 67,722 83,119 \nOperating income $ 24,631 $ 39,834 $ 45,606 \nConsolidated\nNet sales $ 574,785 $ 637,959 $ 716,924 \nOperating expenses 537,933 569,366 636,949 \nOperating income 36,852 68,593 79,975 \nTotal non-operating income 705 21 17,336 \nProvision for income taxes (7,120) (9,265) (19,087)\nEquity-method investment activity, net of tax (12) (101) (554)\nNet income $ 30,425 $ 59,248 $ 77,670 \n68"
       ],
-      "answer": "AWS net sales were $128,725 million in 2025, while Google Cloud revenues were $58,705 million in 2025. AWS net sales were larger than Google Cloud revenues in 2025.",
+      "answer": "AWS net sales were $128,725 million for the year ended December 31, 2025. Google Cloud revenues were $58,705 million for the year ended December 31, 2025. AWS net sales in 2025 exceeded Google Cloud revenues.",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-142",
@@ -1322,13 +1361,16 @@
         "amzn-annual-report-10k-142",
         "googl-annual-report-10k-304"
       ],
-      "retrieval_ms": 1280.0190830021165,
-      "answer_ms": 4862.6309579994995,
+      "retrieval_ms": 1057.9363340000327,
+      "answer_ms": 4929.942458000028,
       "prompt_tokens": 4229,
-      "completion_tokens": 539,
+      "completion_tokens": 550,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1443,7 +1485,7 @@
         "securities and cash capital expenditures. Cash capital expenditures were $77.7 billion, and $128.3 billion in 2024 and 2025, which primarily\nreflect investments in technology infrastructure (the majority of which is to support AWS business growth) and in additional capacity to support\nour fulfillment network, both of which we expect to increase in 2026. We made cash payments, net of acquired cash, related to acquisition and\nother investment activity of $7.1 billion and $3.8 billion in 2024 and 2025, which primarily reflect investments in convertible notes from\nAnthropic, PBC (\u201cAnthropic\u201d), including $2.7 billion we invested in 2025.\nCash provided by (used in) financing activities was $(11.8) billion and $9.7 billion in 2024 and 2025. Cash inflows from financing\nactivities resulted from proceeds from short-term debt, and other and long-term-debt of $5.1 billion and $25.0 billion in 2024 and 2025. Cash",
         "government agencies, and academic institutions.\nInformation on reportable segments and reconciliation to consolidated net income is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNorth America\nNet sales $ 352,828 $ 387,497 $ 426,305 \nOperating expenses 337,951 362,530 396,686 \nOperating income $ 14,877 $ 24,967 $ 29,619 \nInternational\nNet sales $ 131,200 $ 142,906 $ 161,894 \nOperating expenses 133,856 139,114 157,144 \nOperating income (loss) $ (2,656) $ 3,792 $ 4,750 \nAWS\nNet sales $ 90,757 $ 107,556 $ 128,725 \nOperating expenses 66,126 67,722 83,119 \nOperating income $ 24,631 $ 39,834 $ 45,606 \nConsolidated\nNet sales $ 574,785 $ 637,959 $ 716,924 \nOperating expenses 537,933 569,366 636,949 \nOperating income 36,852 68,593 79,975 \nTotal non-operating income 705 21 17,336 \nProvision for income taxes (7,120) (9,265) (19,087)\nEquity-method investment activity, net of tax (12) (101) (554)\nNet income $ 30,425 $ 59,248 $ 77,670 \n68"
       ],
-      "answer": "In 2025, AWS operating income was $45,606 million, while Google Cloud operating income was $13,910 million; AWS\u2019s operating income was higher.",
+      "answer": "AWS operating income was $45,606 million for the year ended December 31, 2025, while Google Cloud operating income was $13,910 million for the year ended December 31, 2025. AWS\u2019s 2025 operating income was higher than Google Cloud\u2019s.",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-332",
@@ -1453,13 +1495,16 @@
         "amzn-annual-report-10k-332",
         "googl-annual-report-10k-406"
       ],
-      "retrieval_ms": 398.1881250074366,
-      "answer_ms": 3086.130083000171,
+      "retrieval_ms": 555.0564999999779,
+      "answer_ms": 7510.885207999991,
       "prompt_tokens": 4121,
-      "completion_tokens": 338,
+      "completion_tokens": 938,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1574,7 +1619,7 @@
         "initiatives to build and deploy innovative and efficient software and electronic devices and the development of a satellite network for global\nbroadband service and autonomous vehicles for ride-hailing services. Technology and infrastructure costs are generally expensed as incurred.\nSales and Marketing\nSales and marketing costs include advertising and payroll and related expenses for personnel engaged in marketing and selling activities,\nincluding sales commissions related to AWS. We pay commissions to third parties when their customer referrals result in sales. We also\nparticipate in cooperative advertising arrangements with certain of our vendors, and other third parties.\nAdvertising and other promotional costs to market our products and services are expensed as incurred and were $20.3 billion, $21.4 billion,\nand $23.5 billion in 2023, 2024, and 2025.\nGeneral and Administrative",
         "and other non-AWS subscription services.\n(6) Includes sales related to various other offerings (such as shipping services, healthcare services, and certain licensing and distribution of video\ncontent) and our co-branded credit card agreements.\nNet sales are attributed to countries primarily based on country-focused online and physical stores or, for AWS purposes, the selling entity.\nNet sales attributed to countries that represent a significant portion of consolidated net sales are as follows (in millions):\n Year Ended December 31,\n 2023 2024 2025\nUnited States $ 395,637 $ 438,015 $ 489,657 \nGermany 37,588 40,856 45,900 \nUnited Kingdom 33,591 37,855 43,212 \nJapan 26,002 27,401 30,688 \nRest of world 81,967 93,832 107,467 \nConsolidated $ 574,785 $ 637,959 $ 716,924 \n69"
       ],
-      "answer": "Google Cloud revenues grew faster in 2025 \u2014 Google Cloud increased 36% year over year, while AWS sales increased 20% in 2025.",
+      "answer": "Google Cloud revenues grew faster in 2025 \u2014 Google Cloud increased 36% in 2025, while AWS sales increased 20% in 2025.",
       "abstained": false,
       "citations": [
         "googl-annual-report-10k-186",
@@ -1584,13 +1629,16 @@
         "googl-annual-report-10k-186",
         "amzn-annual-report-10k-145"
       ],
-      "retrieval_ms": 653.5791250062175,
-      "answer_ms": 3716.295040998375,
+      "retrieval_ms": 421.2764999999763,
+      "answer_ms": 6156.860958000038,
       "prompt_tokens": 3991,
-      "completion_tokens": 464,
+      "completion_tokens": 401,
       "embed_tokens_est": 15,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1705,25 +1753,26 @@
         "Factors.\u201d\nFirst Quarter 2026 Guidance\n\u2022 Net sales are expected to be between $173.5 billion and $178.5 billion, or to grow between 11% and 15% compared with first quarter\n2025. This guidance anticipates a favorable impact of approximately 180 basis points from foreign exchange rates.\n\u2022 Operating income is expected to be between $16.5 billion and $21.5 billion, compared with $18.4 billion in first quarter 2025. This\nguidance includes approximately $1 billion of higher year-over-year Amazon Leo costs as we scale in 2026, as well as investment in\nquick commerce and even sharper prices in our international stores business.\n\u2022 This guidance assumes, among other things, that no additional business acquisitions, restructurings, or legal settlements are concluded.\n30",
         "infrastructure investment and capital spending projects often support a variety of product and service offerings due to geographic expansion and\nthe cross-functionality of our systems and operations. We expect spending in technology and infrastructure to increase over time as we continue\nto add infrastructure and employees, including to support our artificial intelligence and machine learning initiatives. These costs are allocated to\nsegments based on usage. The increase in technology and infrastructure costs in 2025, compared to the prior year, is primarily due to an increase\nin spending on infrastructure, including depreciation and amortization. Changes in foreign exchange rates increased technology and infrastructure\ncosts by $312 million in 2025. We currently expense the majority of the costs associated with the development of our satellite network for global"
       ],
-      "answer": "Amazon\u2019s cash capital expenditures were $128.3 billion in 2025. Alphabet\u2019s additions to property and equipment (reported as additions) for 2025 totaled 1,432 (Google Services $1,269; Google Cloud $163; Other Bets $0), reported in the tables in the filing (amounts in the report are presented in millions), which is materially smaller than Amazon\u2019s 2025 cash capital expenditures.",
+      "answer": "Amazon\u2019s cash capital expenditures were $128.3 billion in 2025, while Alphabet\u2019s additions to property and equipment were $1,432 million (1,432) in 2025. Amazon\u2019s 2025 capital spending was therefore vastly larger than Alphabet\u2019s additions reported for the year. ",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-134",
-        "googl-annual-report-10k-355",
-        "googl-annual-report-10k-254"
+        "googl-annual-report-10k-355"
       ],
       "valid_citations": [
         "amzn-annual-report-10k-134",
-        "googl-annual-report-10k-355",
-        "googl-annual-report-10k-254"
+        "googl-annual-report-10k-355"
       ],
-      "retrieval_ms": 415.70837500330526,
-      "answer_ms": 11598.482541987323,
+      "retrieval_ms": 684.0435840000509,
+      "answer_ms": 15683.473040999957,
       "prompt_tokens": 3961,
-      "completion_tokens": 2002,
+      "completion_tokens": 2349,
       "embed_tokens_est": 15,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1838,23 +1887,20 @@
         "Factors.\u201d\nFirst Quarter 2026 Guidance\n\u2022 Net sales are expected to be between $173.5 billion and $178.5 billion, or to grow between 11% and 15% compared with first quarter\n2025. This guidance anticipates a favorable impact of approximately 180 basis points from foreign exchange rates.\n\u2022 Operating income is expected to be between $16.5 billion and $21.5 billion, compared with $18.4 billion in first quarter 2025. This\nguidance includes approximately $1 billion of higher year-over-year Amazon Leo costs as we scale in 2026, as well as investment in\nquick commerce and even sharper prices in our international stores business.\n\u2022 This guidance assumes, among other things, that no additional business acquisitions, restructurings, or legal settlements are concluded.\n30",
         "securities and cash capital expenditures. Cash capital expenditures were $77.7 billion, and $128.3 billion in 2024 and 2025, which primarily\nreflect investments in technology infrastructure (the majority of which is to support AWS business growth) and in additional capacity to support\nour fulfillment network, both of which we expect to increase in 2026. We made cash payments, net of acquired cash, related to acquisition and\nother investment activity of $7.1 billion and $3.8 billion in 2024 and 2025, which primarily reflect investments in convertible notes from\nAnthropic, PBC (\u201cAnthropic\u201d), including $2.7 billion we invested in 2025.\nCash provided by (used in) financing activities was $(11.8) billion and $9.7 billion in 2024 and 2025. Cash inflows from financing\nactivities resulted from proceeds from short-term debt, and other and long-term-debt of $5.1 billion and $25.0 billion in 2024 and 2025. Cash"
       ],
-      "answer": "I abstain. Alphabet reported 190,820 employees as of December 31, 2025. The provided Amazon excerpts do not include Amazon\u2019s total employee count at year-end 2025, so the filings given do not allow a comparison.",
+      "answer": "I cannot determine which company had more employees at the end of 2025 because the provided filings include Alphabet\u2019s employee count but do not include Amazon\u2019s employee count for that date.",
       "abstained": true,
-      "citations": [
-        "googl-annual-report-10k-36",
-        "amzn-annual-report-10k-18"
-      ],
-      "valid_citations": [
-        "googl-annual-report-10k-36",
-        "amzn-annual-report-10k-18"
-      ],
-      "retrieval_ms": 545.2407499979017,
-      "answer_ms": 4779.960750005557,
+      "citations": [],
+      "valid_citations": [],
+      "retrieval_ms": 1037.852541999996,
+      "answer_ms": 3031.7750420000493,
       "prompt_tokens": 3951,
-      "completion_tokens": 610,
+      "completion_tokens": 318,
       "embed_tokens_est": 18,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -1878,8 +1924,8 @@
         "amzn-annual-report-10k-332",
         "amzn-annual-report-10k-158",
         "amzn-annual-report-10k-202",
-        "amzn-annual-report-10k-143",
-        "amzn-annual-report-10k-333"
+        "amzn-annual-report-10k-333",
+        "amzn-annual-report-10k-143"
       ],
       "retrieved_sources": [
         "amzn_annual_report_10k.pdf",
@@ -1944,11 +1990,11 @@
         ],
         [
           "amzn_annual_report_10k.pdf",
-          24
+          69
         ],
         [
           "amzn_annual_report_10k.pdf",
-          69
+          24
         ]
       ],
       "contexts": [
@@ -1966,10 +2012,10 @@
         "government agencies, and academic institutions.\nInformation on reportable segments and reconciliation to consolidated net income is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNorth America\nNet sales $ 352,828 $ 387,497 $ 426,305 \nOperating expenses 337,951 362,530 396,686 \nOperating income $ 14,877 $ 24,967 $ 29,619 \nInternational\nNet sales $ 131,200 $ 142,906 $ 161,894 \nOperating expenses 133,856 139,114 157,144 \nOperating income (loss) $ (2,656) $ 3,792 $ 4,750 \nAWS\nNet sales $ 90,757 $ 107,556 $ 128,725 \nOperating expenses 66,126 67,722 83,119 \nOperating income $ 24,631 $ 39,834 $ 45,606 \nConsolidated\nNet sales $ 574,785 $ 637,959 $ 716,924 \nOperating expenses 537,933 569,366 636,949 \nOperating income 36,852 68,593 79,975 \nTotal non-operating income 705 21 17,336 \nProvision for income taxes (7,120) (9,265) (19,087)\nEquity-method investment activity, net of tax (12) (101) (554)\nNet income $ 30,425 $ 59,248 $ 77,670 \n68",
         "The increase in North America operating income in 2025, compared to the prior year, is primarily due to increased unit sales and increased\nadvertising sales, partially offset by increased fulfillment, technology and infrastructure, shipping, and other operating costs. Changes in foreign\nexchange rates negatively impacted operating income by $204 million in 2025.\nThe increase in International operating income in 2025, compared to the prior year, is primarily due to increased unit sales and increased\nadvertising sales, partially offset by increased fulfillment and shipping costs. Changes in foreign exchange rates positively impacted operating\nincome by $903 million in 2025.\nThe increase in AWS operating income in 2025, compared to the prior year, is primarily due to increased sales, partially offset by spending\non technology infrastructure that was primarily driven by additional investments to support AWS business growth. Changes in foreign exchange",
         "to five years. The shorter useful lives are due to the increased pace of technology development, particularly in the area of artificial intelligence\nand machine learning. The effect of this change in estimate for the year ended December 31, 2025, based on servers and networking equipment\nthat were included in \u201cProperty and equipment, net\u201d as of December 31, 2024 and those acquired during the year ended December 31, 2025, was\nan increase in depreciation and amortization expense of $1.4 billion and a reduction in net income of $1.0 billion, or $0.10 per basic share and\n$0.10 per diluted share, which primarily impacted our AWS segment.\nDuring Q3 2025, we recorded $2.5 billion of expense related to the settlement of a lawsuit with the FTC. This charge was recorded in\n\u201cOther operating expense (income), net\u201d and impacted our North America segment.\nDuring Q4 2025, we recorded $2.4 billion of expense related to settlements of a lawsuit and tax disputes, severance costs, and asset",
-        "Year Ended December 31,\n 2024 2025\nNet Sales:\nNorth America $ 387,497 $ 426,305 \nInternational 142,906 161,894 \nAWS 107,556 128,725 \nConsolidated $ 637,959 $ 716,924 \nYear-over-year Percentage Growth:\nNorth America 10 % 10 %\nInternational 9 13 \nAWS 19 20 \nConsolidated 11 12 \nYear-over-year Percentage Growth, excluding the effect of foreign exchange rates:\nNorth America 10 % 10 %\nInternational 10 10 \nAWS 19 20 \nConsolidated 11 12 \nNet Sales Mix:\nNorth America 61 % 59 %\nInternational 22 23 \nAWS 17 18 \nConsolidated 100 % 100 %\nSales increased 12% in 2025, compared to the prior year. Changes in foreign exchange rates increased net sales by $4.4 billion in 2025. For\na discussion of the effect of foreign exchange rates on sales growth, see \u201cEffect of Foreign Exchange Rates\u201d below.\nNorth America sales increased 10% in 2025, compared to the prior year. The sales growth primarily reflects increased unit sales, including",
-        "Table of Contents\nNet sales by groups of similar products and services, which also have similar economic characteristics, is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNet Sales:\nOnline stores (1) $ 231,872 $ 247,029 $ 269,287 \nPhysical stores (2) 20,030 21,215 22,561 \nThird-party seller services (3) 140,053 156,146 172,162 \nAdvertising services (4) 46,906 56,214 68,635 \nSubscription services (5) 40,209 44,374 49,619 \nAWS 90,757 107,556 128,725 \nOther (6) 4,958 5,425 5,935 \nConsolidated $ 574,785 $ 637,959 $ 716,924 \n___________________\n(1) Includes product sales and digital media content where we record revenue gross. We leverage our retail infrastructure to offer a wide\nselection of consumable and durable goods that includes media products available in both a physical and digital format, such as books,\nvideos, games, music, and software. These product sales include digital products sold on a transactional basis. Digital media content"
+        "Table of Contents\nNet sales by groups of similar products and services, which also have similar economic characteristics, is as follows (in millions):\n  Year Ended December 31,\n 2023 2024 2025\nNet Sales:\nOnline stores (1) $ 231,872 $ 247,029 $ 269,287 \nPhysical stores (2) 20,030 21,215 22,561 \nThird-party seller services (3) 140,053 156,146 172,162 \nAdvertising services (4) 46,906 56,214 68,635 \nSubscription services (5) 40,209 44,374 49,619 \nAWS 90,757 107,556 128,725 \nOther (6) 4,958 5,425 5,935 \nConsolidated $ 574,785 $ 637,959 $ 716,924 \n___________________\n(1) Includes product sales and digital media content where we record revenue gross. We leverage our retail infrastructure to offer a wide\nselection of consumable and durable goods that includes media products available in both a physical and digital format, such as books,\nvideos, games, music, and software. These product sales include digital products sold on a transactional basis. Digital media content",
+        "Year Ended December 31,\n 2024 2025\nNet Sales:\nNorth America $ 387,497 $ 426,305 \nInternational 142,906 161,894 \nAWS 107,556 128,725 \nConsolidated $ 637,959 $ 716,924 \nYear-over-year Percentage Growth:\nNorth America 10 % 10 %\nInternational 9 13 \nAWS 19 20 \nConsolidated 11 12 \nYear-over-year Percentage Growth, excluding the effect of foreign exchange rates:\nNorth America 10 % 10 %\nInternational 10 10 \nAWS 19 20 \nConsolidated 11 12 \nNet Sales Mix:\nNorth America 61 % 59 %\nInternational 22 23 \nAWS 17 18 \nConsolidated 100 % 100 %\nSales increased 12% in 2025, compared to the prior year. Changes in foreign exchange rates increased net sales by $4.4 billion in 2025. For\na discussion of the effect of foreign exchange rates on sales growth, see \u201cEffect of Foreign Exchange Rates\u201d below.\nNorth America sales increased 10% in 2025, compared to the prior year. The sales growth primarily reflects increased unit sales, including"
       ],
-      "answer": "For Microsoft\u2019s latest fiscal year (year ended June 30, 2026), Intelligent Cloud revenue was $137,791 million. For Amazon\u2019s latest fiscal year (year ended December 31, 2025), AWS net sales were $128,725 million, so Microsoft\u2019s Intelligent Cloud was larger in its reported fiscal year. ",
+      "answer": "Microsoft\u2019s Intelligent Cloud revenue for fiscal year ended June 30, 2026 was $137,791 million, while AWS net sales for the year ended December 31, 2025 were $128,725 million. Microsoft\u2019s Intelligent Cloud was larger in the respective latest fiscal years reported.",
       "abstained": false,
       "citations": [
         "microsoft-annual-report-10k-388",
@@ -1979,13 +2025,16 @@
         "microsoft-annual-report-10k-388",
         "amzn-annual-report-10k-332"
       ],
-      "retrieval_ms": 451.43170800292864,
-      "answer_ms": 6106.77970800316,
+      "retrieval_ms": 529.0768329999764,
+      "answer_ms": 6325.917083000036,
       "prompt_tokens": 4352,
-      "completion_tokens": 500,
+      "completion_tokens": 811,
       "embed_tokens_est": 23,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2100,23 +2149,30 @@
         "Factors.\u201d\nFirst Quarter 2026 Guidance\n\u2022 Net sales are expected to be between $173.5 billion and $178.5 billion, or to grow between 11% and 15% compared with first quarter\n2025. This guidance anticipates a favorable impact of approximately 180 basis points from foreign exchange rates.\n\u2022 Operating income is expected to be between $16.5 billion and $21.5 billion, compared with $18.4 billion in first quarter 2025. This\nguidance includes approximately $1 billion of higher year-over-year Amazon Leo costs as we scale in 2026, as well as investment in\nquick commerce and even sharper prices in our international stores business.\n\u2022 This guidance assumes, among other things, that no additional business acquisitions, restructurings, or legal settlements are concluded.\n30",
         "The increase in North America operating income in 2025, compared to the prior year, is primarily due to increased unit sales and increased\nadvertising sales, partially offset by increased fulfillment, technology and infrastructure, shipping, and other operating costs. Changes in foreign\nexchange rates negatively impacted operating income by $204 million in 2025.\nThe increase in International operating income in 2025, compared to the prior year, is primarily due to increased unit sales and increased\nadvertising sales, partially offset by increased fulfillment and shipping costs. Changes in foreign exchange rates positively impacted operating\nincome by $903 million in 2025.\nThe increase in AWS operating income in 2025, compared to the prior year, is primarily due to increased sales, partially offset by spending\non technology infrastructure that was primarily driven by additional investments to support AWS business growth. Changes in foreign exchange"
       ],
-      "answer": "Microsoft\u2019s net income for the most recent fiscal year (year ended June 30, 2026) was $133,749. Amazon\u2019s net income for the most recent fiscal year (year ended December 31, 2025) was $77,670, so Microsoft\u2019s reported net income was higher in its latest fiscal year. ",
+      "answer": "Microsoft reported net income of $133,749 for the fiscal year ended June 30, 2026 (amounts presented in millions). Amazon reported net income of $77,670 for the year ended December 31, 2025 (amounts presented in millions). Microsoft\u2019s net income was higher than Amazon\u2019s in their latest fiscal years.",
       "abstained": false,
       "citations": [
         "microsoft-annual-report-10k-200",
-        "amzn-annual-report-10k-332"
+        "microsoft-annual-report-10k-390",
+        "amzn-annual-report-10k-193",
+        "amzn-annual-report-10k-191"
       ],
       "valid_citations": [
         "microsoft-annual-report-10k-200",
-        "amzn-annual-report-10k-332"
+        "microsoft-annual-report-10k-390",
+        "amzn-annual-report-10k-193",
+        "amzn-annual-report-10k-191"
       ],
-      "retrieval_ms": 511.87175000086427,
-      "answer_ms": 9661.262207999243,
+      "retrieval_ms": 33917.636625,
+      "answer_ms": 9418.229291999978,
       "prompt_tokens": 4260,
-      "completion_tokens": 1077,
+      "completion_tokens": 1164,
       "embed_tokens_est": 19,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2231,7 +2287,7 @@
         "Table of Contents Alphabet Inc.\nAlphabet Inc.\nCONSOLIDATED STATEMENTS OF CASH FLOWS\n(in millions)\n Year Ended December 31,\n 2023 2024 2025\nOperating activities\nNet income $ 73,795 $ 100,118 $ 132,170 \nAdjustments:\nDepreciation of property and equipment 11,946 15,311 21,136 \nStock-based compensation expense 22,460 22,785 24,953 \nDeferred income taxes (7,763) (5,257) 8,348 \nLoss (gain) on debt and equity securities, net 823 (2,671) (24,620)\nOther 4,330 3,419 2,108 \nChanges in assets and liabilities, net of effects of acquisitions:\nAccounts receivable, net (7,833) (5,891) (8,779)\nIncome taxes, net 523 (2,418) (3,226)\nOther assets (2,143) (1,397) (4,542)\nAccounts payable 664 359 907 \nAccrued expenses and other liabilities 3,937 (1,161) 12,939 \nAccrued revenue share 482 1,059 899 \nDeferred revenue 525 1,043 2,420 \nNet cash provided by operating activities 101,746 125,299 164,713 \nInvesting activities\nPurchases of property and equipment (32,251) (52,535) (91,447)",
         "Table of Contents Alphabet Inc.\nAlphabet Inc.\nCONSOLIDATED BALANCE SHEETS\n(in millions, except par value per share amounts)\nAs of December 31,\n2024 2025\nAssets\nCurrent assets:\nCash and cash equivalents $ 23,466 $ 30,708 \nMarketable securities 72,191 96,135 \nTotal cash, cash equivalents, and marketable securities 95,657 126,843 \nAccounts receivable, net 52,340 62,886 \nOther current assets 15,714 16,309 \nTotal current assets 163,711 206,038 \nNon-marketable securities 37,982 68,687 \nDeferred income taxes 17,180 9,113 \nProperty and equipment, net 171,036 246,597 \nOperating lease assets 13,588 15,221 \nGoodwill 31,885 33,380 \nOther non-current assets 14,874 16,245 \nTotal assets $ 450,256 $ 595,281 \nLiabilities and Stockholders\u2019 Equity\nCurrent liabilities:\nAccounts payable $ 7,987 $ 12,200 \nAccrued compensation and benefits 15,069 17,546 \nAccrued expenses and other current liabilities 51,228 55,557 \nAccrued revenue share 9,802 10,864 \nDeferred revenue 5,036 6,578"
       ],
-      "answer": "Alphabet reported total revenues of $402,836 million for the year ended December 31, 2025, while Microsoft reported total revenues of $331,839 million for the year ended June 30, 2026. Thus, Alphabet\u2019s latest fiscal-year revenue was higher than Microsoft\u2019s in the periods reported.",
+      "answer": "Alphabet\u2019s total revenue for the year ended December 31, 2025 was $402,836 million. Microsoft\u2019s total revenue for the year ended June 30, 2026 was $331,839 million; Alphabet\u2019s revenue was higher.",
       "abstained": false,
       "citations": [
         "googl-annual-report-10k-254",
@@ -2241,13 +2297,16 @@
         "googl-annual-report-10k-254",
         "microsoft-annual-report-10k-390"
       ],
-      "retrieval_ms": 400.82712499133777,
-      "answer_ms": 3689.572000002954,
+      "retrieval_ms": 1095.3347089999852,
+      "answer_ms": 4566.408083000056,
       "prompt_tokens": 4416,
-      "completion_tokens": 495,
+      "completion_tokens": 482,
       "embed_tokens_est": 19,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2313,22 +2372,26 @@
         "Table of Contents\nAMAZON.COM, INC.\nCONSOLIDATED STATEMENTS OF OPERATIONS\n(in millions, except per share data)\n  Year Ended December 31,\n 2023 2024 2025\nNet product sales $ 255,887 $ 272,311 $ 296,266 \nNet service sales 318,898 365,648 420,658 \nTotal net sales 574,785 637,959 716,924 \nOperating expenses:\nCost of sales 304,739 326,288 356,414 \nFulfillment 90,619 98,505 109,074 \nTechnology and infrastructure 85,622 88,544 108,521 \nSales and marketing 44,370 43,907 47,129 \nGeneral and administrative 11,816 11,359 11,172 \nOther operating expense (income), net 767 763 4,639 \nTotal operating expenses 537,933 569,366 636,949 \nOperating income 36,852 68,593 79,975 \nInterest income 2,949 4,677 4,381 \nInterest expense (3,182) (2,406) (2,274)\nOther income (expense), net 938 (2,250) 15,229 \nTotal non-operating income 705 21 17,336 \nIncome before income taxes 37,557 68,614 97,311 \nProvision for income taxes (7,120) (9,265) (19,087)\nEquity-method investment activity, net of tax (12) (101) (554)",
         "These could affect customer demand for our products and services, our ability to forecast growth needs, expenses, and benefits from new\ntechnologies. Further, we expect to continue making additional investments in our artificial intelligence initiatives. We expect some or all of these\nfactors to continue to impact our results of operations into Q1 2026.\nNet Sales\nNet sales include product and service sales. Product sales represent revenue from the sale of products and related shipping fees and digital\nmedia content where we record revenue gross. Service sales primarily represent third-party seller fees, which includes commissions and any\nrelated fulfillment and shipping fees, AWS sales, advertising services, Amazon Prime membership fees, and certain digital media content\nsubscriptions. Net sales information is as follows (in millions):\n  Year Ended December 31,\n 2024 2025\nNet Sales:\nNorth America $ 387,497 $ 426,305 \nInternational 142,906 161,894 \nAWS 107,556 128,725"
       ],
-      "answer": "Operating income was $68.6 billion for 2024 and $80.0 billion for 2025, reflecting an increase from 2024 to 2025.",
+      "answer": "Operating income increased from $68.6 billion in 2024 to $80.0 billion in 2025.",
       "abstained": false,
       "citations": [
         "amzn-annual-report-10k-156",
-        "amzn-annual-report-191"
+        "amzn-annual-report-10k-191"
       ],
       "valid_citations": [
-        "amzn-annual-report-10k-156"
+        "amzn-annual-report-10k-156",
+        "amzn-annual-report-10k-191"
       ],
-      "retrieval_ms": 427.6863749983022,
-      "answer_ms": 5167.082458996447,
+      "retrieval_ms": 448.20208300006925,
+      "answer_ms": 4570.783082999924,
       "prompt_tokens": 2204,
-      "completion_tokens": 464,
+      "completion_tokens": 520,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2398,21 +2461,22 @@
       "abstained": false,
       "citations": [
         "googl-annual-report-10k-200",
-        "googl-annual-report-10k-406",
-        "googl-annual-report-10k-199"
+        "googl-annual-report-10k-406"
       ],
       "valid_citations": [
         "googl-annual-report-10k-200",
-        "googl-annual-report-10k-406",
-        "googl-annual-report-10k-199"
+        "googl-annual-report-10k-406"
       ],
-      "retrieval_ms": 417.61087499617133,
-      "answer_ms": 5930.719458003296,
+      "retrieval_ms": 377.95841599995583,
+      "answer_ms": 4818.060750000086,
       "prompt_tokens": 2473,
-      "completion_tokens": 612,
+      "completion_tokens": 537,
       "embed_tokens_est": 16,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2478,7 +2542,7 @@
         "PART II\nItem 8\n \n85\nRevenue, classified by significant product and service offerings, was as follows: \n \n(In millions)    \n  \n     \nYear Ended June 30,  2026  2025  2024 \n    \nServer products and cloud services  $ 129,425  $ 98,435  $ 79,828 \nMicrosoft 365 Commercial products and cloud services   101,997   87,767   76,969 \nXBOX   21,790   23,455   21,503 \nLinkedIn   19,817\n \n  17,812\n \n  16,372 \nWindows and Devices   17,084   17,314   17,026 \nSearch advertising   15,176   13,878   12,306 \nMicrosoft 365 Consumer products and cloud services   9,175   7,404   6,648 \nDynamics products and cloud services   9,006   7,827   6,831 \nEnterprise and partner services   8,260   7,760   7,594 \nOther   109   72   45 \n          \n             \nTotal  $ 331,839  $ 281,724  $ 245,122 \n             \n \nOur Microsoft Cloud revenue, which includes Microsoft 365 Commercial cloud, Azure and other cloud services, the commercial",
         "recognized as revenue in future periods\n   \nMicrosoft Cloud revenue and revenue growth\n \nRevenue from Microsoft 365 Commercial cloud, Azure and other cloud \nservices, the commercial portion of LinkedIn, and Dynamics 365\n   \nMicrosoft Cloud gross margin percentage  Gross margin percentage for our Microsoft Cloud business \n \nProductivity and Business Processes and Intelligent Cloud\nMetrics related to our Productivity and Business Processes and Intelligent Cloud segments assess the health of our core \nbusinesses within these segments. The metrics primarily reflect growth across our cloud services.\n \nMicrosoft 365 Commercial cloud revenue growth\n \nRevenue from Microsoft 365 Commercial subscriptions, comprising Microsoft \n365 Commercial, Enterprise Mobility + Security, the cloud portion of Windows \nCommercial, the per-user portion of Power BI, Exchange, SharePoint, \nMicrosoft Teams, Microsoft 365 Security and Compliance, and Microsoft 365 \nCopilot\n   \nMicrosoft 365 Commercial seat growth"
       ],
-      "answer": "Intelligent Cloud revenue increased $31.5 billion, or 30%, from fiscal year 2025 to fiscal year 2026.",
+      "answer": "Intelligent Cloud revenue increased $31.5 billion, or 30%, in fiscal year 2026 compared with fiscal year 2025.",
       "abstained": false,
       "citations": [
         "microsoft-annual-report-10k-208"
@@ -2486,13 +2550,16 @@
       "valid_citations": [
         "microsoft-annual-report-10k-208"
       ],
-      "retrieval_ms": 431.27220901078545,
-      "answer_ms": 3013.578707992565,
+      "retrieval_ms": 521.9059579999339,
+      "answer_ms": 3695.4453750000766,
       "prompt_tokens": 2123,
-      "completion_tokens": 321,
+      "completion_tokens": 322,
       "embed_tokens_est": 23,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2558,7 +2625,7 @@
         "Table of Contents Alphabet Inc.\nshift from Google Network properties to Google Search & other properties. Our TAC rate will continue to be affected by\nchanges in device mix; geographic mix; partner agreement terms; partner mix; the percentage of queries channeled through\npaid access points; product mix; the relative revenue growth rates of advertising revenues from different channels; and\nrevenue share terms.\n\u2022 We have raised capital through external financing in the form of debt and we may continue to seek debt or other\nforms of financing in the future to support our capital and operating needs.\nIn 2025, we raised capital through the issuance of debt and we expect to continue to assess the use of debt and other forms of\nfinancing in the future. We expect to continue to enter into finance leases, primarily for data centers. Additionally, in 2025, we\nprovided credit support, such as through backstops and guarantees, to certain infrastructure related counterparties and may",
         "Table of Contents Alphabet Inc.\nCost of Revenues\nThe following table presents cost of revenues, including TAC (in millions, except percentages):\n Year Ended December 31,\n 2024 2025\nTAC $ 54,900 $ 59,926 \nOther cost of revenues 91,406 102,609 \nTotal cost of revenues $ 146,306 $ 162,535 \nTotal cost of revenues as a percentage of revenues 42 % 40 %\nCost of revenues increased $16.2 billion from 2024 to 2025 due to an increase in other cost of revenues and TAC of $11.2\nbillion and $5.0 billion, respectively.\nThe increase in TAC from 2024 to 2025 was largely due to an increase in TAC paid to distribution partners, primarily driven by\ngrowth in revenues subject to TAC. The TAC rate decreased from 20.7% to 20.3% from 2024 to 2025, primarily due to a revenue\nmix shift from Google Network properties to Google Search & other properties. The TAC rates on Google Search & other and\nGoogle Network revenues were substantially consistent from 2024 to 2025."
       ],
-      "answer": "Alphabet\u2019s capital expenditures (purchases of property and equipment) increased from $52,535 million in 2024 to $91,447 million in 2025 (reported as $91.4 billion for 2025).",
+      "answer": "Alphabet\u2019s capital expenditures were $52,535 million for the year ended December 31, 2024 and $91,447 million for the year ended December 31, 2025, i.e., they increased from 2024 to 2025.",
       "abstained": false,
       "citations": [
         "googl-annual-report-10k-259",
@@ -2568,13 +2635,16 @@
         "googl-annual-report-10k-259",
         "googl-annual-report-10k-190"
       ],
-      "retrieval_ms": 486.2032079981873,
-      "answer_ms": 3850.89087500819,
+      "retrieval_ms": 693.7652920000801,
+      "answer_ms": 3946.4294999999083,
       "prompt_tokens": 2494,
-      "completion_tokens": 479,
+      "completion_tokens": 421,
       "embed_tokens_est": 16,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2650,13 +2720,16 @@
         "amzn-annual-report-10k-166",
         "amzn-annual-report-10k-165"
       ],
-      "retrieval_ms": 804.8808330058819,
-      "answer_ms": 3907.7039590047207,
+      "retrieval_ms": 502.8387090000024,
+      "answer_ms": 3639.6787499999164,
       "prompt_tokens": 2081,
-      "completion_tokens": 395,
+      "completion_tokens": 331,
       "embed_tokens_est": 14,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2722,17 +2795,20 @@
         "securities and cash capital expenditures. Cash capital expenditures were $77.7 billion, and $128.3 billion in 2024 and 2025, which primarily\nreflect investments in technology infrastructure (the majority of which is to support AWS business growth) and in additional capacity to support\nour fulfillment network, both of which we expect to increase in 2026. We made cash payments, net of acquired cash, related to acquisition and\nother investment activity of $7.1 billion and $3.8 billion in 2024 and 2025, which primarily reflect investments in convertible notes from\nAnthropic, PBC (\u201cAnthropic\u201d), including $2.7 billion we invested in 2025.\nCash provided by (used in) financing activities was $(11.8) billion and $9.7 billion in 2024 and 2025. Cash inflows from financing\nactivities resulted from proceeds from short-term debt, and other and long-term-debt of $5.1 billion and $25.0 billion in 2024 and 2025. Cash",
         "Table of Contents\nGeneral and Administrative\nGeneral and administrative costs in 2025 did not significantly change compared to the prior year.\nOther Operating Expense (Income), Net\nOther operating expense (income), net was $763 million and $4.6 billion during 2024 and 2025. The increase in 2025 was primarily related\nto the settlement of a lawsuit with the Federal Trade Commission (the \u201cFTC\u201d) in Q3 2025, and also included the resolution of tax disputes\nassociated with our stores business in Italy, and physical stores and other asset impairments.\nOperating Income\nOperating income by segment is as follows (in millions):\nYear Ended December 31,\n2024 2025\nOperating Income\nNorth America $ 24,967 $ 29,619 \nInternational 3,792 4,750 \nAWS 39,834 45,606 \nConsolidated $ 68,593 $ 79,975 \nOperating income was $68.6 billion and $80.0 billion for 2024 and 2025. Operating income for 2025 includes charges of $2.5 billion we"
       ],
-      "answer": "I abstain. The provided filings do not include AWS operating income for the second quarter of 2026.",
+      "answer": "The filings provided do not contain AWS operating income for the second quarter of 2026.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 518.472625000868,
-      "answer_ms": 2471.591082998202,
+      "retrieval_ms": 668.0491669999356,
+      "answer_ms": 2511.08612500002,
       "prompt_tokens": 2207,
-      "completion_tokens": 240,
+      "completion_tokens": 236,
       "embed_tokens_est": 15,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2800,17 +2876,20 @@
         "Year Ended December 31,\n2024 2025 $ Change % Change\nConsolidated revenues $ 350,018 $ 402,836 $ 52,818 15 %\nCost of revenues $ 146,306 $ 162,535 $ 16,229 11 %\nOperating expenses $ 91,322 $ 111,262 $ 19,940 22 %\nOperating income $ 112,390 $ 129,039 $ 16,649 15 %\nOperating margin 32 % 32 % 0 %\nOther income (expense), net $ 7,425 $ 29,787 $ 22,362 301 %\nNet income $ 100,118 $ 132,170 $ 32,052 32 %\nDiluted net income per share $ 8.04 $ 10.81 $ 2.77 34 %\nFor additional information on the calculation of diluted net income per share, see Note 12 of the Notes to Consolidated Financial Statements\nincluded in Item 8 of this Annual Report on Form 10-K.\n\u2022 Revenues were $402.8 billion, an increase of 15% year over year, primarily driven by an increase in Google Services\nrevenues of $37.8 billion, or 12%, and an increase in Google Cloud revenues of $15.5 billion, or 36%.\n\u2022 Cost of revenues was $162.5 billion, an increase of 11% year over year, primarily driven by increases in TAC, content",
         "such as compute or storage capacity delivered on-demand. Certain services, including compute and database, are also offered as a fixed quantity\nover a specified term, for which revenue is recognized ratably. Sales commissions we pay in connection with contracts that exceed one year are\ncapitalized and amortized over the contract term.\nOther - Other revenue includes sales related to various other offerings, such as healthcare services, certain licensing and distribution of\nvideo content, and shipping services, and our co-branded credit card agreements. Revenue is recognized when content is licensed or distributed\nand as or when services are performed.\nReturn Allowances\nReturn allowances, which reduce revenue and cost of sales, are estimated using historical experience. Liabilities for return allowances are\nincluded in \u201cAccrued expenses and other\u201d and were $1.4 billion, $1.4 billion, and $1.6 billion as of December 31, 2023, 2024, and 2025."
       ],
-      "answer": "I abstain. The filings provided do not contain Apple\u2019s services revenue for fiscal 2025.",
+      "answer": "I abstain: the filings provided do not contain Apple\u2019s services revenue for fiscal 2025.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 490.77591601235326,
-      "answer_ms": 2259.232874988811,
+      "retrieval_ms": 545.6090829999312,
+      "answer_ms": 2007.4221670000725,
       "prompt_tokens": 2484,
-      "completion_tokens": 174,
+      "completion_tokens": 110,
       "embed_tokens_est": 12,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2876,17 +2955,20 @@
         "\u2022 devices, which primarily include sales of the Pixel family of devices; and\n\u2022 other products and services.\nFluctuations in our Google subscriptions, platforms, and devices revenues have been, and may continue to be, affected by\nfactors in addition to the general factors described above, such as changes in customer usage and demand, number of subscribers,\nand the timing of product launches.\nGoogle Cloud\nGoogle Cloud revenues are comprised of the following:\n\u2022 Google Cloud Platform primarily generates consumption-based fees and subscriptions for infrastructure, platform, and other\nservices. These services provide access to solutions such as AI offerings including our enterprise AI infrastructure, Vertex AI\nplatform, and Gemini Enterprise; cybersecurity offerings; and data and analytics solutions;\n\u2022 Google Workspace includes subscriptions for cloud-based communication and collaboration tools for enterprises, such as",
         "subscriptions across both YouTube services and Google One.\nGoogle Cloud\nGoogle Cloud revenues increased $15.5 billion from 2024 to 2025, primarily driven by growth in Google Cloud Platform largely\nfrom infrastructure and platform services.\nRevenues by Geography\nThe following table presents revenues by geography as a percentage of revenues, determined based on the addresses of our\ncustomers:\n Year Ended December 31,\n 2024 2025\nUnited States 49 % 48 %\nEMEA 29 % 29 %\nAPAC 16 % 17 %\nOther Americas 6 % 6 %\nHedging gains (losses) 0 % 0 %\n    Regions represent Europe, the Middle East, and Africa (EMEA); Asia-Pacific (APAC); and Canada and Latin America (\"Other Americas\").\nFor additional information, see Note 2 of the Notes to Consolidated Financial Statements included in Item 8 of this Annual\nReport on Form 10-K.\nCosts and Expenses\n(1)\n(1)\n(1)\n(1)\n34."
       ],
-      "answer": "The filings provided do not contain Google Cloud revenues for fiscal year 2026.",
+      "answer": "I cannot find Google Cloud\u2019s revenues for fiscal year 2026 in the provided filings. The filings you supplied do not contain the 2026 Google Cloud revenue figure.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 656.1024580005324,
-      "answer_ms": 2510.0208340008976,
+      "retrieval_ms": 652.1627500000022,
+      "answer_ms": 3603.8274999999658,
       "prompt_tokens": 2068,
-      "completion_tokens": 234,
+      "completion_tokens": 316,
       "embed_tokens_est": 13,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -2952,17 +3034,20 @@
         "Our Microsoft Cloud revenue, which includes Microsoft 365 Commercial cloud, Azure and other cloud services, the commercial \nportion of LinkedIn, and Dynamics 365, was $214.4 billion, $168.9 billion, and $137.7 billion in fiscal years 2026, 2025, and 2024, \nrespectively. These amounts are included in Server products and cloud services, Microsoft 365 Commercial products and cloud \nservices, LinkedIn, and Dynamics products and cloud services in the table above.\nAssets are not allocated to segments for internal reporting presentations. A portion of amortization and depreciation is included with \nvarious other costs in an overhead allocation to each segment. It is impracticable for us to separately identify the amount of \namortization and depreciation by segment that is included in the measure of segment profit or loss.\nLong-lived assets, excluding financial instruments and tax assets, classified by the location of the controlling statutory company and",
         "Microsoft Teams, Microsoft 365 Security and Compliance, and Microsoft 365 \nCopilot\n   \nMicrosoft 365 Commercial seat growth\n \nThe number of Microsoft 365 Commercial seats at end of period where seats \nare paid users covered by a Microsoft 365 Commercial subscription\n   \nMicrosoft 365 Consumer cloud revenue growth\n \nRevenue from Microsoft 365 Consumer subscriptions and other consumer \nservices\n   \nLinkedIn revenue growth\n \nRevenue from LinkedIn, including Talent Solutions, Marketing Solutions, \nPremium Subscriptions, and Sales Solutions\n   \nDynamics 365 revenue growth\n \nRevenue from Dynamics 365, including a set of intelligent, cloud-based \napplications across ERP, CRM, Power Apps, and Power Automate\n   \nAzure and other cloud services revenue growth\n \nRevenue from Azure and other cloud services, including cloud and AI \nconsumption-based services, GitHub cloud services, Health and Life Sciences \ncloud services (formerly Nuance Healthcare cloud services), virtual desktop"
       ],
-      "answer": "I abstain. The provided filings do not report revenue for Azure alone for fiscal year 2026; they only report combined figures such as \u201cAzure and other cloud services\u201d and other aggregated Microsoft Cloud totals.",
+      "answer": "The provided filings do not disclose revenue for Azure alone for fiscal year 2026. They report combined figures such as \u201cAzure and other cloud services\u201d and Microsoft Cloud totals, but an Azure-only dollar amount is not included in the excerpts supplied.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 385.4595829907339,
-      "answer_ms": 2788.978666998446,
+      "retrieval_ms": 538.7875410000333,
+      "answer_ms": 3392.221209000013,
       "prompt_tokens": 2125,
-      "completion_tokens": 388,
+      "completion_tokens": 331,
       "embed_tokens_est": 18,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     },
     {
@@ -3028,17 +3113,20 @@
         "Table of Contents Alphabet Inc.\nSegment Profitability\nWe report our segment results as Google Services, Google Cloud, and Other Bets. Additionally, certain costs are not allocated\nto our segments because they represent Alphabet-level activities. For further details on our segments, see Part I, Item 1 Business\nand Note 15 of the Notes to Consolidated Financial Statements included in Item 8 of this Annual Report on Form 10-K.\nThe following table presents segment operating income (loss) (in millions).\nYear Ended December 31,\n2024 2025\nOperating income (loss):\nGoogle Services $ 121,263 $ 139,404 \nGoogle Cloud 6,112 13,910 \nOther Bets (4,444) (7,515)\nAlphabet-level activities (10,541) (16,760)\nTotal income from operations $ 112,390 $ 129,039 \nAlphabet-level activities primarily reflect expenses related to our shared AI research and development.\nGoogle Services\nGoogle Services operating income increased $18.1 billion from 2024 to 2025. The increase in operating income was primarily",
         "Table of Contents Alphabet Inc.\nGoogle Services Google Cloud Other Bets Total\nBalance as of December 31, 2023 $ 21,118 $ 7,199 $ 881 $ 29,198 \nAdditions 2,441 295 0 2,736 \nForeign currency translation and other adjustments (38) (4) (7) (49)\nBalance as of December 31, 2024 23,521 7,490 874 31,885 \nAdditions 1,269 163 0 1,432 \nForeign currency translation and other adjustments 80 7 (24) 63 \nBalance as of December 31, 2025 $ 24,870 $ 7,660 $ 850 $ 33,380 \nNote 10. Commitments and Contingencies\nCommitments\nWe have certain content licensing agreements with future fixed or minimum guaranteed commitments of $7.7 billion as of\nDecember 31, 2025, of which the majority is paid quarterly through the first quarter of 2030.\nFinancial Guarantees\nWe provide financial guarantees to certain counterparties, in the form of backstop agreements with varying terms through\nAugust 2026. These backstop agreements support counterparty procurement of long-lead time equipment for our future power"
       ],
-      "answer": "I abstain. The provided filing excerpts do not state how many Alphabet employees were based in China at the end of 2025.",
+      "answer": "I abstain. The filings provided do not contain the number of Alphabet employees based in China at the end of 2025.",
       "abstained": true,
       "citations": [],
       "valid_citations": [],
-      "retrieval_ms": 428.9791250048438,
-      "answer_ms": 2233.0680419981945,
+      "retrieval_ms": 557.396707999942,
+      "answer_ms": 3804.601625000032,
       "prompt_tokens": 2275,
-      "completion_tokens": 181,
+      "completion_tokens": 372,
       "embed_tokens_est": 18,
       "deployments": [
         "chat-mini"
+      ],
+      "retrieval_modes": [
+        "vector"
       ]
     }
   ]

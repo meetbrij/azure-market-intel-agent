@@ -25,25 +25,27 @@ from typing import Any
 
 from app.azure_clients import close_async_clients
 from app.config import get_settings
-from app.graph.retrieval import search_many
+from app.graph.retrieval import Mode, search_many
 from app.logging_setup import configure_logging
 from evals.answer import Sample, answer_item
 from evals.golden import EVALS_DIR, load_golden, load_pricing, load_thresholds
 from evals.metrics import RAGAS_METRICS, summarize
 
 ROOT = EVALS_DIR.parent
-VARIANTS = ["vector"]  # Day 14 adds hybrid and hybrid_semantic
+VARIANTS = ["vector", "hybrid", "hybrid_semantic"]
 
 
-async def generate(items: list[Any], k: int, concurrency: int) -> list[Sample]:
+async def generate(
+    items: list[Any], k: int, concurrency: int, mode: Mode
+) -> list[Sample]:
     # Warm up first: the first call waits for an Entra token (seconds with the
     # Azure CLI credential), which would otherwise land in retrieval latency.
-    await search_many(["warm-up"], [], k=1)
+    await search_many(["warm-up"], [], k=1, mode=mode)
     gate = asyncio.Semaphore(concurrency)
 
     async def one(item: Any) -> Sample:
         async with gate:
-            sample = await answer_item(item, k)
+            sample = await answer_item(item, k, mode)
             flag = (
                 "abstained" if sample.abstained else f"{len(sample.citations)} cite(s)"
             )
@@ -168,6 +170,7 @@ def markdown(run: dict[str, Any]) -> str:
             f"{fmt(m['retrieval_p50_ms'])} / {fmt(m['retrieval_p95_ms'])}",
         ),
         ("end-to-end p95 (ms)", fmt(m["end_to_end_p95_ms"])),
+        ("semantic ranker fallbacks", fmt(m.get("semantic_fallbacks"))),
         (
             "cost / query (USD)",
             f"{m['cost_per_query_usd']:.5f}" if m["cost_per_query_usd"] else "—",
@@ -210,7 +213,12 @@ def markdown(run: dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smoke", action="store_true")
-    parser.add_argument("--variant", choices=VARIANTS, default="vector")
+    parser.add_argument(
+        "--variant",
+        choices=VARIANTS,
+        default=None,
+        help="retrieval mode (default: RETRIEVAL_MODE, i.e. what production uses)",
+    )
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument(
         "--concurrency",
@@ -231,6 +239,7 @@ def main() -> int:
     configure_logging()
 
     s = get_settings()
+    args.variant = args.variant or s.retrieval_mode
     items = load_golden()
     thresholds = load_thresholds()
     if args.smoke:
@@ -241,11 +250,13 @@ def main() -> int:
         f"Answering {len(items)} question(s) [{args.variant}, top-{args.top_k}]...",
         file=sys.stderr,
     )
-    samples = asyncio.run(generate(items, args.top_k, args.concurrency))
+    samples = asyncio.run(generate(items, args.top_k, args.concurrency, args.variant))
     print(f"Scoring with RAGAS ({', '.join(metrics)})...", file=sys.stderr)
     scored = score_with_ragas(samples, metrics, args.judge_model)
     ragas_errors, ragas_meta = scored.pop("_errors", {}), scored.pop("_meta", {})
-    summary = summarize(samples, {i.id: i for i in items}, scored, load_pricing())
+    summary = summarize(
+        samples, {i.id: i for i in items}, scored, load_pricing(), args.variant
+    )
 
     name = (
         args.name

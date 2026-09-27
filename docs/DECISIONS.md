@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 13. Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 14. Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -60,9 +60,14 @@ day's definition of done.
 | D-41 | 13 | Evaluation | RAGAS in an isolated environment |
 | D-42 | 13 | Evaluation | Retrieval-only eval, with the question's company filter |
 | D-43 | 13 | Evaluation | Warm-up, then run sequentially, for honest latency |
-| D-44 | 13 | Evaluation | Gate thresholds from measured variance |
+| D-44 | 13 | Evaluation | Gate thresholds from measured variance (re-measured Day 14) |
+| D-45 | 14 | Ingestion | `title` field and semantic configuration; rebuild the index |
+| D-46 | 14 | Retrieval | Retrieval mode is configuration; hybrid uses a 50-candidate vector pool |
+| D-47 | 14 | Retrieval | Ship hybrid + semantic ranker as the default |
+| D-48 | 14 | Resilience | Semantic ranker unavailable → fall back to hybrid, recorded per hit |
+| D-49 | 14 | Evaluation | The smoke gate follows the production retrieval mode |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-15](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-16](#found-in-live-testing).
 
 ---
 
@@ -153,6 +158,22 @@ Bugs found in live testing, and what each one changed: [F-01 to F-15](#found-in-
   - A Postgres table, which would couple ingestion to the app's database.
 - **Status:** Active.
 
+### D-45 · `title` field and semantic configuration; rebuild the index · Day 14
+- **Context:** A semantic configuration names a title field and content
+  fields, and the index had no title.
+- **Decision:**
+  - Add a searchable `title` built at ingest time ("Amazon 10-K 2025-12-31
+    p.27").
+  - Add the semantic configuration `filings-semantic` (title plus
+    `content`); keep the vector profile.
+  - Rebuild with `--recreate`, since search-configuration changes require it.
+    Chunk ids are deterministic, so existing citations and archives still
+    resolve.
+- **Why:** The ranker and BM25 then see which company, form, period and page
+  a chunk comes from; the chunk text alone often doesn't say.
+- **Status:** Active. The configuration name comes from one setting
+  (`SEMANTIC_CONFIGURATION`), shared by ingestion and queries.
+
 ---
 
 ## Retrieval
@@ -174,6 +195,38 @@ Bugs found in live testing, and what each one changed: [F-01 to F-15](#found-in-
   - Names are mapped to their canonical form, and unknown names are dropped.
 - **Why:** An invented or differently spelled company name makes the search
   filter match nothing.
+- **Status:** Active.
+
+### D-46 · Retrieval mode is configuration; hybrid uses a 50-candidate vector pool · Day 14
+- **Decision:**
+  - `RETRIEVAL_MODE` is `vector`, `hybrid` (BM25 + vector in one call, fused
+    by Azure with RRF) or `hybrid_semantic` (hybrid, then the semantic
+    ranker).
+  - Hybrid modes ask the vector side for 50 candidates (not k), so fusion and
+    reranking have enough to choose from; `top` stays at k.
+  - Each hit records the mode that served it.
+- **Why:** Evals can switch variants without code changes, as the spec
+  requires. With only k candidates, RRF would have little to fuse and the
+  ranker little to reorder.
+- **Status:** Active.
+
+### D-47 · Ship hybrid + semantic ranker as the default · Day 14
+- **Context:** The benchmark ran all three variants on the same day and the
+  same index.
+- **Decision:** `RETRIEVAL_MODE` defaults to `hybrid_semantic`.
+- **Evidence:**
+  - Context precision 0.54 → 0.81 and recall 0.85 → 1.00.
+  - Wrongly declined questions 16% → 0%; the expected page retrieved 80% →
+    100%.
+  - Abstention and citation validity unchanged at 100%.
+  - About +55 ms median retrieval latency, and no change in token cost.
+- **Alternatives:**
+  - Hybrid without the ranker: good recall (0.95) but little precision gain
+    (0.59).
+  - Vector: the baseline.
+- **Trade-off:** The Free plan's 1,000 semantic queries a month is roughly
+  50–200 reports (see the limitations).
+- **See:** [retrieval-benchmark.md](retrieval-benchmark.md).
 - **Status:** Active.
 
 Retrieval quality is measured, not assumed: see D-40 to D-44, and Day 14 for
@@ -353,6 +406,20 @@ hybrid and semantic ranking.
   line with your "don't over-engineer" guidance.
 - **Status:** Active.
 
+### D-48 · Semantic ranker unavailable → fall back to hybrid, recorded per hit · Day 14
+- **Context:** When the semantic quota runs out, Azure returns an error rather
+  than quietly giving unranked results.
+- **Decision:**
+  - A search error that mentions the semantic ranker is retried as plain
+    hybrid, with a warning logged.
+  - Any other search error is raised as usual, not hidden.
+  - The mode that actually served the query is stored on each hit, and eval
+    runs report `semantic_fallbacks`.
+- **Why:** Running out of quota should degrade to the second-best variant
+  (hybrid: recall 0.95), not fail the job. Recording fallbacks keeps a quota
+  problem from being mistaken for a quality change.
+- **Status:** Active.
+
 ---
 
 ## Security and untrusted content
@@ -514,7 +581,17 @@ hybrid and semantic ranking.
   validity measured 1.0 three times and 0.857 once (a single mangled id). A
   0.90 gate would trip on normal variance, and the spec warns that such
   gates get switched off.
-- **Status:** Active (`evals/thresholds.yaml`).
+- **Status:** Active (`evals/thresholds.yaml`). Re-measured on Day 14 for
+  hybrid_semantic: 1.0 on both metrics in 4 of 4 runs. The values stay at
+  0.90 and 0.80, because the smoke set is still only about 8 citations.
+
+### D-49 · The smoke gate follows the production retrieval mode · Day 14
+- **Decision:** `evals.run` defaults `--variant` to `RETRIEVAL_MODE`, so
+  `--smoke` (the CI gate) tests what production actually runs. Previously it
+  was hard-coded to `vector`.
+- **Why:** A gate that tests a mode production doesn't use gives false
+  confidence.
+- **Status:** Active.
 
 ---
 
@@ -540,6 +617,7 @@ one led to.
 | F-13 | 12 | On a second pass the UI showed every step as done | Reset the progress list when a new pass starts |
 | F-14 | 13 | RAGAS conflicts and name-based reasoning-model detection | D-41 |
 | F-15 | 13 | Token waits inflated retrieval latency; the page-hit metric overstated hits | D-43; metric relabelled |
+| F-16 | 14 | The fallback metric counted a plain-hybrid run as 30 "semantic fallbacks" | Count fallbacks only for `hybrid_semantic` runs (D-48); stored results recomputed |
 
 ---
 

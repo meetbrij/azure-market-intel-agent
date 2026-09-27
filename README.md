@@ -36,7 +36,7 @@ flowchart LR
     API -->|enqueue| R[(Redis<br/>arq queue)]
     R --> W[arq worker<br/>LangGraph agent]
     W <-->|state per step| PG
-    W -->|vector search| S
+    W -->|hybrid + semantic search| S
     W -->|chat + embeddings| AOAI[Azure OpenAI]
     W -->|MCP stdio| N[mcp_news server]
     N -->|key from Key Vault| T[Tavily]
@@ -100,6 +100,10 @@ capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
   and tokens per node) and one file per approval decision to
   `reports/{yyyy}/{mm}/{job_id}/`. Blobs are never overwritten.
   [ADR 0007](docs/adr/0007-report-archival.md).
+- **Measured retrieval, not assumed.** Hybrid search (BM25 + vector) with
+  the semantic ranker is the default because the eval showed it: context
+  precision 0.54 → 0.81 and wrongly declined questions 16% → 0%
+  ([benchmark](docs/retrieval-benchmark.md)).
 - **Balanced retrieval for comparisons.** Each requested company gets its own
   top-k; otherwise "Google Cloud" chunks crowd out Amazon's "AWS" chunks.
 - **A separate worker instead of FastAPI `BackgroundTasks`.**
@@ -288,21 +292,27 @@ then scores the result:
   number).
 
 ```bash
-uv run python -m evals.run                         # all 30 → results/<variant>-<timestamp>.json + .md
-uv run python -m evals.run --smoke                 # 5 questions; exits 1 below evals/thresholds.yaml (CI gate)
+uv run python -m evals.run [--variant vector|hybrid|hybrid_semantic]   # all 30 → results/
+uv run python -m evals.run --smoke          # 5 questions, production mode; exits 1 below evals/thresholds.yaml
 ```
 
-**Baseline** (vector retrieval, top-8; [`results/baseline-vector.md`](results/baseline-vector.md)):
+**Retrieval benchmark** (all 30 questions, same day and index; full write-up
+in [docs/retrieval-benchmark.md](docs/retrieval-benchmark.md)):
 
-| context precision | context recall | faithfulness | citation validity | abstention | false abstention | retrieval p95 | cost/query |
-|---|---|---|---|---|---|---|---|
-| 0.556 | 0.807 | 0.967 | 95.2% | **100%** | 16% | 805 ms | $0.0016 |
+| variant | context precision | context recall | false abstention | abstention (unanswerable) | retrieval p50 | cost/query |
+|---|---|---|---|---|---|---|
+| vector | 0.542 | 0.847 | 16% | 100% | 539 ms | $0.0017 |
+| hybrid (BM25 + vector, RRF) | 0.592 | 0.947 | 4% | 100% | 536 ms | $0.0015 |
+| **hybrid + semantic ranker** (shipped) | **0.806** | **1.000** | **0%** | 100% | 592 ms | $0.0015 |
 
-It declined every unanswerable question. Three of its four declines on
-answerable questions were retrieval misses on exact-figure lookups (employee
-counts, a stated growth rate); in each case it declined rather than guessing.
-The judge is the same gpt-5-mini deployment that produces the answers, so
-treat the RAGAS numbers as relative (variant vs variant), not absolute.
+Hybrid + semantic ranking retrieved the expected evidence for every
+answerable question, at about +55 ms median retrieval latency, and every
+variant still declined all the unanswerable questions. Its real cost is the
+semantic ranker's quota (1,000 queries a month on the Free plan). When the
+quota runs out it falls back to hybrid, and the eval records each fallback.
+The judge is the same gpt-5-mini deployment that writes the answers, so read
+the RAGAS numbers as comparisons between variants rather than absolute
+scores.
 
 ## Web UI (Streamlit)
 
@@ -367,6 +377,8 @@ Beyond the Azure endpoints in `.env.example`, all optional:
 | `AZURE_OPENAI_CHAT_FALLBACK_DEPLOYMENT` | unset | chat deployment used after repeated 429s or timeouts |
 | `RETRY_ATTEMPTS` / `RETRY_BASE_WAIT_S` | `4` / `1.0` | retries for Search, embeddings and chat (429, 5xx, timeouts only) |
 | `NODE_TIMEOUT_S` | `300` | wall-clock cap per graph node |
+| `RETRIEVAL_MODE` | `hybrid_semantic` | `vector`, `hybrid` or `hybrid_semantic` (falls back to hybrid if the ranker is unavailable) |
+| `SEMANTIC_CONFIGURATION` | `filings-semantic` | semantic configuration defined in the index |
 | `RETRIEVAL_TOP_K` | `4` | chunks per sub-question (per company for comparisons) |
 | `NEWS_ENABLED` / `NEWS_MCP_URL` | `true` / unset | turn news off, or use a remote HTTP MCP server |
 | `CHECKPOINT_SCHEMA` | `langgraph` | Postgres schema for LangGraph's checkpoint tables |
@@ -446,7 +458,7 @@ ingestion/                      index schema, PDF parse, chunk, ingest CLI, veri
 mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
 ui/                             Streamlit client (app.py, api_client.py, Dockerfile)
 evals/                          golden set, eval harness, thresholds; ragas/ = isolated scorer
-results/                        committed eval runs (baseline-vector.json/.md)
+results/                        committed eval runs (baseline + bench-{vector,hybrid,hybrid_semantic})
 tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
 docs/                           specs, ADRs 0001–0003 and 0007, media/ (demo clips)
 Dockerfile, docker-compose.yml  runtime + local images; full local stack

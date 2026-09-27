@@ -1,13 +1,18 @@
-"""AI Search vector query wrapper."""
+"""AI Search retrieval: vector, hybrid (BM25 + vector, RRF) or hybrid +
+semantic reranking, chosen by Settings.retrieval_mode."""
 
 import asyncio
-from typing import Any
+import logging
+from typing import Any, Literal
 
+from azure.core.exceptions import HttpResponseError
 from azure.search.documents.models import VectorizedQuery
 
 from app.azure_clients import get_async_aoai, get_async_search_client
 from app.config import get_settings
 from app.resilience import with_retries
+
+log = logging.getLogger(__name__)
 
 SELECT_FIELDS = [
     "id",
@@ -42,49 +47,100 @@ def company_filter(companies: list[str]) -> str | None:
     return f"search.in(company, '{names}', ',')"
 
 
-async def _vector_search(
-    vector: list[float], companies: list[str], k: int
+Mode = Literal["vector", "hybrid", "hybrid_semantic"]
+
+# Vector candidates fed into RRF fusion (and so into the semantic ranker,
+# which reranks up to 50). Wider than top-k so fusion has something to fuse.
+HYBRID_CANDIDATES = 50
+
+
+def semantic_unavailable(exc: HttpResponseError) -> bool:
+    """The semantic ranker refused the query (e.g. the Free tier's monthly
+    quota is used up). Azure errors rather than silently degrading."""
+    return "semantic" in str(exc).lower()
+
+
+async def _search(
+    query: str, vector: list[float], companies: list[str], k: int, mode: Mode
 ) -> list[dict[str, Any]]:
     # Results are fetched while iterating, so retry the search and the read.
+    if mode == "hybrid_semantic":
+        try:
+            return await with_retries(
+                "search", lambda: _search_once(query, vector, companies, k, mode)
+            )
+        except HttpResponseError as e:
+            if not semantic_unavailable(e):
+                raise
+            log.warning(
+                "Semantic ranker unavailable (%s); falling back to hybrid",
+                str(e.message)[:200],
+            )
+            mode = "hybrid"
     return await with_retries(
-        "search", lambda: _vector_search_once(vector, companies, k)
+        "search", lambda: _search_once(query, vector, companies, k, mode)
     )
 
 
-async def _vector_search_once(
-    vector: list[float], companies: list[str], k: int
+async def _search_once(
+    query: str, vector: list[float], companies: list[str], k: int, mode: Mode
 ) -> list[dict[str, Any]]:
-    vq = VectorizedQuery(vector=vector, k_nearest_neighbors=k, fields="content_vector")
+    knn = k if mode == "vector" else max(k, HYBRID_CANDIDATES)
+    options: dict[str, Any] = {}
+    if mode == "hybrid_semantic":
+        options = {
+            "query_type": "semantic",
+            "semantic_configuration_name": get_settings().semantic_configuration,
+        }
     results = await get_async_search_client().search(
-        search_text=None,
-        vector_queries=[vq],
+        search_text=None if mode == "vector" else query,
+        vector_queries=[
+            VectorizedQuery(
+                vector=vector, k_nearest_neighbors=knn, fields="content_vector"
+            )
+        ],
         filter=company_filter(companies),
         select=SELECT_FIELDS,
         top=k,
+        **options,
     )
     hits: list[dict[str, Any]] = []
     async for r in results:
         hit = {f: r.get(f) for f in SELECT_FIELDS}
-        hit["score"] = r["@search.score"]
+        # Semantic mode ranks by the reranker score (0-4); others by the
+        # search score (cosine for vector, RRF for hybrid).
+        reranker = r.get("@search.reranker_score")
+        hit["score"] = (
+            reranker
+            if mode == "hybrid_semantic" and reranker is not None
+            else r["@search.score"]
+        )
+        hit["retrieval_mode"] = mode
         hits.append(hit)
     return hits
 
 
 async def search_many(
-    queries: list[str], companies: list[str], k: int
+    queries: list[str], companies: list[str], k: int, mode: Mode | None = None
 ) -> list[dict[str, Any]]:
     """Top-k per query — and, with several companies, per company — deduped
-    by chunk id (best score wins), best first.
+    by chunk id (best score wins), best first. mode defaults to
+    Settings.retrieval_mode.
 
     Per-company top-k stops whichever filing phrases things closest to the
     query (e.g. "Google Cloud" vs "AWS") from crowding out the others.
     """
     if not queries:
         return []
+    mode = mode or get_settings().retrieval_mode
     vectors = await embed_queries(queries)
     scopes = [[c] for c in companies] if len(companies) > 1 else [companies]
     batches = await asyncio.gather(
-        *(_vector_search(v, scope, k) for v in vectors for scope in scopes)
+        *(
+            _search(q, v, scope, k, mode)
+            for q, v in zip(queries, vectors, strict=True)
+            for scope in scopes
+        )
     )
     best: dict[str, dict[str, Any]] = {}
     for hit in (h for batch in batches for h in batch):

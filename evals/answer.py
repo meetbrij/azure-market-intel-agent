@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.graph.llm import parse_structured, recording_calls
 from app.graph.nodes import normalize_reference
-from app.graph.retrieval import search_many
+from app.graph.retrieval import Mode, search_many
 from evals.golden import GoldenItem
 
 ANSWER_SYSTEM = """\
@@ -56,6 +56,7 @@ class Sample(BaseModel):
     completion_tokens: int
     embed_tokens_est: int
     deployments: list[str]
+    retrieval_modes: list[str] = []  # modes that actually served (fallbacks show here)
 
 
 def format_context(hits: list[dict[str, Any]]) -> str:
@@ -68,9 +69,9 @@ def format_context(hits: list[dict[str, Any]]) -> str:
     )
 
 
-async def answer_item(item: GoldenItem, k: int) -> Sample:
+async def answer_item(item: GoldenItem, k: int, mode: Mode) -> Sample:
     t0 = time.perf_counter()
-    hits = await search_many([item.question], item.companies, k=k)
+    hits = await search_many([item.question], item.companies, k=k, mode=mode)
     t1 = time.perf_counter()
     with recording_calls() as calls:
         result = await parse_structured(
@@ -103,4 +104,5 @@ async def answer_item(item: GoldenItem, k: int) -> Sample:
         # The embeddings call's usage isn't surfaced by search_many; ~4 chars/token.
         embed_tokens_est=max(1, len(item.question) // 4),
         deployments=sorted({c.deployment for c in calls}),
+        retrieval_modes=sorted({h["retrieval_mode"] for h in hits}),
     )
