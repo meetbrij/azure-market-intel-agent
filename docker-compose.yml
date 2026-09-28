@@ -58,6 +58,11 @@ services:
     image: azure-market-intel-agent-ui:local
     environment:
       API_BASE_URL: http://api:8000
+      # Entra sign-in (device code). Unset = dev mode, which needs the API's
+      # DEV_AUTH_BYPASS. Values come from .env (not secrets: public client).
+      AUTH_TENANT_ID: ${AUTH_TENANT_ID:-}
+      AUTH_UI_CLIENT_ID: ${AUTH_UI_CLIENT_ID:-}
+      AUTH_API_CLIENT_ID: ${AUTH_API_CLIENT_ID:-}
     ports:
       - "8501:8501"
     depends_on:

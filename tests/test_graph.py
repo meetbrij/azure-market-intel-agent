@@ -45,7 +45,12 @@ async def test_pauses_for_approval_then_completes(graph_deps: GraphDeps) -> None
     assert request["sub_questions"] == ["Amazon operating income 2024 and 2025"]
     assert request["evidence_counts"] == {"filings": 1, "news": 0}
     assert graph_deps.llm.labels() == ["plan", "compact", "write", "critique"]
-    assert final.approval == {"approved": True, "mode": "human", "notes": None}
+    assert final.approval == {
+        "approved": True,
+        "mode": "human",
+        "notes": None,
+        "reviewer": None,
+    }
     assert final.report is not None
     assert final.report.sections[0].citations[0].page == 27
 

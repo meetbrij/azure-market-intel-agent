@@ -180,6 +180,19 @@ for now; the point is that it exists.
 Update it to acquire a token (device code flow via MSAL is simplest) and send it
 on every call. Show the signed-in user and their role.
 
+> **As built (Day 15):**
+> - **Registrations:** created by `infra/entra/setup.sh`, with no secrets
+>   and role assignment required.
+> - **Visibility:** another user's job returns 404. Operations status is for
+>   approvers.
+> - **Dev bypass:** takes the identity from `X-Dev-User` / `X-Dev-Roles`
+>   headers.
+> - **Injection screen:** live testing showed Azure OpenAI's Prompt Shields
+>   refuse a whole prompt that contains a jailbreak, so a refusal counts as a
+>   flag and the batch is re-screened item by item (ADR 0004).
+> - **Audit:** append-only is enforced by a Postgres trigger as well as the
+>   app. See DECISIONS D-60 to D-67.
+
 ---
 
 ## Day 16 — Observability

@@ -83,6 +83,11 @@ def provenance(
         "job_id": job.id,
         "query": job.query,
         "companies_requested": job.companies,
+        "submitted_by": (
+            {"oid": job.submitted_by, "name": job.submitted_by_name}
+            if job.submitted_by
+            else None
+        ),
         "created_at": job.created_at,
         "completed_at": completed_at,
         "plan": state.plan.model_dump() if state.plan else None,
@@ -169,7 +174,8 @@ async def archive_approval(
         "decision": "approved" if decision.get("approved") else "rejected",
         "notes": decision.get("notes"),
         "decided_at": _now(),
-        "reviewer": None,  # no identity until Day 15 (Entra ID)
+        # The Entra identity that decided (set by POST /resume from the token).
+        "reviewer": decision.get("reviewer"),
         "plan_reviewed": request,
     }
     prefix = archive_prefix(job.id, job.created_at)

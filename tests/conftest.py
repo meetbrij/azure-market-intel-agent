@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -25,6 +26,10 @@ DUMMY_ENV = {
     "LANGGRAPH_STRICT_MSGPACK": "true",
     # No real waiting between retry attempts in tests.
     "RETRY_BASE_WAIT_S": "0",
+    # Identity from X-Dev-User / X-Dev-Roles headers (default: an analyst and
+    # approver). tests/test_auth.py switches it off and validates real JWTs.
+    "ENVIRONMENT": "local",
+    "DEV_AUTH_BYPASS": "true",
 }
 os.environ.update(DUMMY_ENV)
 
@@ -35,12 +40,14 @@ from app.api.main import app
 from app.api.routes import get_queue
 from app.config import get_settings
 from app.graph.build import build_graph
+from app.graph.llm import _log_served
 from app.graph.state import (
     Citation,
     Critique,
     DraftCitation,
     DraftReport,
     DraftSection,
+    InjectionScreen,
     Report,
     ReportSection,
     ResearchPlan,
@@ -167,6 +174,7 @@ class FakeLLM:
             "compact": f"Operating income rose [{HIT['id']}]",
             "write": make_draft(str(HIT["id"])),
             "critique": Critique(is_complete=True),
+            "screen": InjectionScreen(),  # nothing flagged
         }
     )
     calls: list[tuple[str, str]] = field(default_factory=list)
@@ -182,11 +190,18 @@ class FakeLLM:
         self, label: str, system: str, user: str, schema: type[Any]
     ) -> Any:
         self.calls.append((label, user))
-        return self._next(label)
+        return self._served(label, self._next(label))
 
     async def complete_text(self, label: str, system: str, user: str) -> str:
         self.calls.append((label, user))
-        return str(self._next(label))
+        return str(self._served(label, self._next(label)))
+
+    @staticmethod
+    def _served(label: str, result: Any) -> Any:
+        # Record the call for provenance and audit, as the real client does.
+        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20)
+        _log_served(label, "test-chat", usage)
+        return result
 
     def labels(self) -> list[str]:
         return [label for label, _ in self.calls]

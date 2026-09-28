@@ -2,9 +2,10 @@
 
     API_BASE_URL=http://localhost:8000 uv run --group ui streamlit run ui/app.py
 
-Talks to the system only through api_client.ApiClient (HTTP). The role
-dropdown is a UI-side simulation with no security value; Day 15 replaces it
-with the Entra ID app role.
+Talks to the system only through api_client.ApiClient (HTTP). Users sign in
+with Entra ID (device code, ui/auth.py); what they may do comes from the app
+roles in their token, which the API enforces. The UI only hides what the API
+would refuse anyway.
 """
 
 import os
@@ -12,6 +13,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+import auth
 import streamlit as st
 from api_client import ApiClient, ApiError
 
@@ -19,8 +21,7 @@ st.set_page_config(
     page_title="Market Intelligence Agent", page_icon="📑", layout="wide"
 )
 
-ROLES = ["Analyst", "Reviewer", "Admin"]
-APPROVERS = {"Reviewer", "Admin"}
+DEV_ROLES = ["analyst", "approver"]
 ACTIVE = {"queued", "running"}
 BADGE = {
     "queued": "gray",
@@ -44,9 +45,28 @@ PRESETS = [
 ]
 
 
-@st.cache_resource
+def _auth_headers() -> dict[str, str]:
+    if auth.enabled():
+        token = auth.silent_token(st.session_state.msal)
+        return {"Authorization": f"Bearer {token}"} if token else {}
+    # Dev mode: only an API with DEV_AUTH_BYPASS=true (local) accepts these.
+    return {
+        "X-Dev-User": st.session_state.get("dev_user") or "dev-user",
+        "X-Dev-Roles": ",".join(st.session_state.get("dev_roles", DEV_ROLES)),
+    }
+
+
 def api() -> ApiClient:
-    return ApiClient(os.environ.get("API_BASE_URL", "http://api:8000"))
+    """One client per browser session: each carries its own user's token."""
+    if "client" not in st.session_state:
+        if auth.enabled():
+            st.session_state.msal = auth.new_app()
+        st.session_state.client = ApiClient(
+            os.environ.get("API_BASE_URL", "http://api:8000"),
+            auth_headers=_auth_headers,
+        )
+    client: ApiClient = st.session_state.client
+    return client
 
 
 def show_error(e: ApiError) -> None:
@@ -83,17 +103,66 @@ def open_job(job_id: str) -> None:
     st.session_state.job_id = job_id
 
 
-# ---------- sidebar: simulated role + navigation ----------
+# ---------- sign-in, identity and navigation ----------
 
-role = st.sidebar.selectbox(
-    "Simulated role (dev only)",
-    ROLES,
-    key="role",
-    help="A UI-side simulation with no security value — anyone can pick any "
-    "role. Day 15 replaces it with the Entra ID app role.",
-)
-st.sidebar.caption("⚠️ Not access control. The API does not check roles yet.")
-pages = ["Submit", "Jobs"] + (["Operations"] if role == "Admin" else [])
+
+def sign_in_screen() -> None:
+    st.title("📑 Market Intelligence Agent")
+    st.write("Sign in with your organisation account to continue.")
+    if not st.button("Sign in with Microsoft", type="primary"):
+        return
+    app = st.session_state.msal
+    try:
+        flow = auth.start_device_flow(app)
+    except RuntimeError as e:
+        st.error(f"Could not start sign-in: {e}")
+        return
+    st.info(
+        f"Open **{flow['verification_uri']}** in your browser and enter the code "
+        f"**`{flow['user_code']}`**."
+    )
+    with st.spinner("Waiting for you to finish signing in…"):
+        error = auth.finish_device_flow(app, flow)
+    if error:
+        st.error(f"Sign-in failed: {error}")
+    else:
+        st.rerun()
+
+
+api()  # creates this session's client (and MSAL app)
+if auth.enabled() and auth.silent_token(st.session_state.msal) is None:
+    sign_in_screen()
+    st.stop()
+
+if not auth.enabled():
+    st.sidebar.warning(
+        "**Dev mode:** Entra sign-in is not configured. Identity comes from the "
+        "fields below and works only against an API with DEV_AUTH_BYPASS=true."
+    )
+    st.sidebar.text_input("Dev user", value="dev-user", key="dev_user")
+    st.sidebar.multiselect("Dev roles", DEV_ROLES, default=DEV_ROLES, key="dev_roles")
+
+try:
+    ME = api().me()
+except ApiError as e:
+    show_error(e)
+    st.stop()
+ROLES = set(ME["roles"])
+IS_APPROVER = "approver" in ROLES
+st.sidebar.markdown(f"Signed in as **{md_escape(ME['name'])}**")
+st.sidebar.caption("Roles: " + (", ".join(sorted(ROLES)) or "none"))
+if auth.enabled() and st.sidebar.button("Sign out"):
+    auth.sign_out(st.session_state.msal)
+    st.session_state.clear()
+    st.rerun()
+if not ROLES & set(DEV_ROLES):
+    st.warning(
+        "Your account has no app role for this service (analyst or approver). "
+        "Ask an administrator to assign one."
+    )
+    st.stop()
+
+pages = ["Submit", "Jobs"] + (["Operations"] if IS_APPROVER else [])
 current = st.session_state.get("page", "Submit")
 page = st.sidebar.radio(
     "Go to", pages, index=pages.index(current) if current in pages else 0
@@ -147,7 +216,7 @@ def jobs_screen() -> None:
     except ApiError as e:
         show_error(e)
         return
-    reviewer = role in APPROVERS
+    reviewer = IS_APPROVER
     if reviewer:  # the reviewer's queue comes first
         jobs.sort(key=lambda j: j["status"] != "awaiting_approval")
         waiting = sum(j["status"] == "awaiting_approval" for j in jobs)
@@ -162,7 +231,9 @@ def jobs_screen() -> None:
         c1.markdown(badge(job["status"]) + flag)
         title = job["subject"] or job["query"]
         c2.markdown(md_escape(title if len(title) <= 110 else title[:107] + "…"))
-        c3.caption(parse_ts(job["created_at"]).strftime("%Y-%m-%d %H:%M UTC"))
+        when = parse_ts(job["created_at"]).strftime("%Y-%m-%d %H:%M UTC")
+        by = job.get("submitted_by_name")
+        c3.caption(f"{when} · {md_escape(by)}" if reviewer and by else when)
         c4.button(
             "View",
             key=f"view-{job['job_id']}",
@@ -220,8 +291,11 @@ def approval_panel(job: dict[str, Any]) -> None:
 
     if request.get("final_pass"):
         st.info("Final pass: rejecting ends the job instead of re-planning.")
-    if role not in APPROVERS:
+    if not IS_APPROVER:
         st.info("Awaiting reviewer approval.")
+        return
+    if job.get("submitted_by") == ME["oid"]:
+        st.info("You submitted this job, so another approver must decide it.")
         return
     job_id, pass_no = job["job_id"], request.get("pass")
     notes = st.text_area(
@@ -437,5 +511,5 @@ elif page == "Submit":
     submit_screen()
 elif page == "Jobs":
     jobs_screen()
-elif page == "Operations" and role == "Admin":
+elif page == "Operations" and IS_APPROVER:
     operations_screen()

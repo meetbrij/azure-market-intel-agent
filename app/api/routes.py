@@ -1,4 +1,8 @@
-"""/research endpoints, reference data for the UI, operations status, /health."""
+"""/research endpoints, reference data for the UI, operations status, /health.
+
+Every /api/v1 route needs an Entra ID token (app/api/auth.py). Analysts see
+their own jobs; approvers see all jobs and decide approvals, but never on a
+job they submitted themselves. /health is open, for probes."""
 
 import json
 import logging
@@ -9,12 +13,14 @@ from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from langgraph.graph.state import CompiledStateGraph
 
+from app.api.auth import Analyst, Approver, Authenticated, Principal
 from app.api.schemas import (
     Companies,
     Health,
     JobCreated,
     JobSummary,
     JobView,
+    Me,
     OpsStatus,
     ResearchRequest,
     ResumeRequest,
@@ -25,7 +31,7 @@ from app.graph.build import thread_config
 from app.graph.retrieval import list_companies
 from app.graph.state import Report, ResearchState
 from app.jobs import store
-from app.jobs.models import JobStatus
+from app.jobs.models import Job, JobStatus
 from app.reports import archive
 from app.reports.markdown import render_report_md
 from app.resilience import with_retries
@@ -70,8 +76,15 @@ async def read_state(
     status_code=status.HTTP_202_ACCEPTED,
     response_model=JobCreated,
 )
-async def submit_research(body: ResearchRequest, queue: Queue) -> JobCreated:
-    job = await store.create_job(body.query, body.companies)
+async def submit_research(
+    body: ResearchRequest, queue: Queue, principal: Analyst
+) -> JobCreated:
+    job = await store.create_job(
+        body.query,
+        body.companies,
+        submitted_by=principal.oid,
+        submitted_by_name=principal.name,
+    )
     try:
         await queue.enqueue_job("run_research", job.id, _job_id=job.id)
     except Exception as e:
@@ -87,18 +100,36 @@ async def submit_research(body: ResearchRequest, queue: Queue) -> JobCreated:
 
 @router.get("/api/v1/research", response_model=list[JobSummary])
 async def list_research(
+    principal: Analyst,
     status_filter: Annotated[JobStatus | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[JobSummary]:
-    """Jobs, newest first."""
-    return [JobSummary.from_job(j) for j in await store.list_jobs(status_filter, limit)]
+    """Jobs, newest first: all of them for approvers, your own otherwise."""
+    mine = None if principal.is_approver else principal.oid
+    jobs = await store.list_jobs(status_filter, limit, submitted_by=mine)
+    return [JobSummary.from_job(j) for j in jobs]
+
+
+async def visible_job(job_id: str, principal: Principal) -> Job:
+    """The job, if this caller may see it. Someone else's job is a 404, not a
+    403, so job ids can't be probed."""
+    job = await store.get_job(job_id)
+    if job is None or not (
+        principal.is_approver or job.submitted_by == principal.oid
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id} not found")
+    return job
+
+
+@router.get("/api/v1/me", response_model=Me)
+async def me(principal: Authenticated) -> Me:
+    """Who the token says you are, and your app roles (for the UI)."""
+    return Me(oid=principal.oid, name=principal.name, roles=sorted(principal.roles))
 
 
 @router.get("/api/v1/research/{job_id}", response_model=JobView)
-async def get_research(job_id: str, graph: Graph) -> JobView:
-    job = await store.get_job(job_id)
-    if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id} not found")
+async def get_research(job_id: str, graph: Graph, principal: Analyst) -> JobView:
+    job = await visible_job(job_id, principal)
     return JobView.from_job(job, await read_state(graph, job_id))
 
 
@@ -107,12 +138,10 @@ async def get_research(job_id: str, graph: Graph) -> JobView:
     response_class=Response,
     responses={200: {"content": {"text/markdown": {}}}},
 )
-async def get_report_markdown(job_id: str) -> Response:
+async def get_report_markdown(job_id: str, principal: Analyst) -> Response:
     """The archived report.md; rendered on the fly if the archive is missing.
     The X-Report-Source header says which."""
-    job = await store.get_job(job_id)
-    if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id} not found")
+    job = await visible_job(job_id, principal)
     text, source = None, "archive"
     if job.archive_prefix:
         try:
@@ -142,7 +171,7 @@ async def get_report_markdown(job_id: str) -> Response:
 
 
 @router.get("/api/v1/companies", response_model=Companies)
-async def get_companies() -> Companies:
+async def get_companies(principal: Analyst) -> Companies:
     """Distinct companies in the search index (for the UI's filter)."""
     try:
         return Companies(companies=await list_companies())
@@ -154,7 +183,7 @@ async def get_companies() -> Companies:
 
 
 @router.get("/api/v1/ops/status", response_model=OpsStatus)
-async def ops_status() -> OpsStatus:
+async def ops_status(principal: Approver) -> OpsStatus:
     """Index size, last ingestion, and job counts. Each part fails soft."""
     s = get_settings()
     errors: list[str] = []
@@ -190,12 +219,25 @@ async def ops_status() -> OpsStatus:
     status_code=status.HTTP_202_ACCEPTED,
     response_model=JobCreated,
 )
-async def resume_research(job_id: str, body: ResumeRequest, queue: Queue) -> JobCreated:
+async def resume_research(
+    job_id: str, body: ResumeRequest, queue: Queue, principal: Approver
+) -> JobCreated:
     """Approve (or reject with notes) a job paused at awaiting_approval.
-    Anyone can call this for now; RBAC arrives in Phase 4."""
-    job = await store.get_job(job_id)
-    if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Job {job_id} not found")
+    Approvers only, and never on a job they submitted: the point of the gate
+    is a second person."""
+    job = await visible_job(job_id, principal)
+    if job.submitted_by is not None and job.submitted_by == principal.oid:
+        await store.record_audit(
+            "approval_refused",
+            actor=principal.oid,
+            actor_name=principal.name,
+            job_id=job_id,
+            detail={"reason": "submitter cannot approve own job"},
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "You submitted this job; another approver must decide it",
+        )
     claimed = await store.transition(
         job_id, from_status=JobStatus.AWAITING_APPROVAL, to_status=JobStatus.QUEUED
     )
@@ -216,7 +258,27 @@ async def resume_research(job_id: str, body: ResumeRequest, queue: Queue) -> Job
         )
     # The worker applies the decision only to this pass, so a stale or retried
     # task can never approve a later plan.
-    decision = {"approved": body.approved, "notes": body.notes, "pass": pass_no}
+    decision = {
+        "approved": body.approved,
+        "notes": body.notes,
+        "pass": pass_no,
+        "reviewer": {"oid": principal.oid, "name": principal.name},
+    }
+    try:
+        # No decision without its audit record.
+        await store.record_audit(
+            "approval_decided",
+            actor=principal.oid,
+            actor_name=principal.name,
+            job_id=job_id,
+            detail={"approved": body.approved, "notes": body.notes, "pass": pass_no},
+        )
+    except Exception as e:
+        log.exception("Audit write failed resuming job %s", job_id)
+        await _unclaim(job_id)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Audit log unavailable"
+        ) from e
     try:
         # A fresh arq id: the original task id is still held by its result.
         await queue.enqueue_job(

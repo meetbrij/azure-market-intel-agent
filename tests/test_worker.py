@@ -122,6 +122,25 @@ async def test_resume_is_dropped_unless_the_job_was_claimed(
     assert still is not None and still.status == JobStatus.AWAITING_APPROVAL
     assert "write" not in graph_deps.llm.labels()
 
+
+async def test_worker_audits_models_served_and_outcome(
+    db: None, graph_deps: GraphDeps, worker_ctx: dict[str, Any]
+) -> None:
+    job = await store.create_job("q", ["Amazon"])
+    await run_research(worker_ctx, job.id)
+    await resume_job(worker_ctx, job.id)
+
+    events = await store.list_audit(job.id)
+    served = [e.detail for e in events if e.action == "llm_call"]
+    assert [d["node"] for d in served] == ["plan", "compact", "write", "critique"]
+    assert all(
+        (d["deployment"], d["prompt_tokens"], d["completion_tokens"])
+        == ("test-chat", 100, 20)
+        for d in served
+    )
+    assert events[-1].action == "job_completed"
+    assert all(e.actor == store.SYSTEM for e in events)
+
 async def test_run_research_records_failure(
     db: None, graph_deps: GraphDeps, worker_ctx: dict[str, Any]
 ) -> None:

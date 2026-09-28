@@ -79,10 +79,20 @@ capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
   (Entra ID); the code holds no API keys. The only third-party key (Tavily)
   comes from Key Vault. Deployment names come from env vars, so swapping a
   retired model is a config change.
+- **Real identities and a real second pair of eyes.** Every API call needs an
+  Entra ID access token. App roles decide what a caller may do (`analyst`
+  submits and sees their own jobs; `approver` sees all and decides), and
+  nobody can approve a job they submitted. Every submission, decision, model
+  call and withheld news item goes to an append-only `audit_events` table.
+- **Web content is data, never instructions.** News is sanitised, screened
+  for injected instructions (our classifier plus Azure's Prompt Shields),
+  fenced, and can't change control flow.
+  [ADR 0004](docs/adr/0004-untrusted-content.md).
 - **Citations grounded in Python, not trusted from the model.** The writer
   cites evidence by reference id only. Company, period, page and chunk are
-  filled in from the evidence, and a reference that wasn't retrieved is
-  dropped. The critic's deterministic checks override the LLM's verdict.
+  filled in from the evidence, and a reference that wasn't retrieved (or a
+  quote that isn't in its source) is dropped. The critic's deterministic
+  checks override the LLM's verdict.
 - **Human in the loop at the cheapest useful point.** The reviewer sees the
   plan and what was found before the expensive writing step, and can reject
   with notes to re-plan.
@@ -132,6 +142,20 @@ cp .env.example .env    # then fill in your endpoints and deployment names
 uv run scripts/smoke_test.py   # optional: checks every Azure dependency
 ```
 
+**Sign-in (Entra ID).** Create the two app registrations and assign the app
+roles. It needs a user who can create app registrations and grant admin
+consent, creates no secrets, and is safe to re-run:
+
+```bash
+# object ids of the users who get the analyst and approver roles
+infra/entra/setup.sh <analyst-object-id> <approver-object-id>
+```
+
+Paste the three values it prints (`AUTH_TENANT_ID`, `AUTH_API_CLIENT_ID`,
+`AUTH_UI_CLIENT_ID`) into `.env`. For offline work only, `DEV_AUTH_BYPASS=true`
+with `ENVIRONMENT=local` skips token checks; the API refuses to start with it
+anywhere else.
+
 ## Ingest the filings
 
 Upload 10-K PDFs to the `raw-filings` container, then:
@@ -158,18 +182,27 @@ docker compose ps          # api, worker, ui, postgres, redis
 
 ### Demo: submit, approve, get the report
 
+Two people: an analyst submits, a different approver decides. Get a token for
+each (device code sign-in; run the second one signed in as the approver):
+
 ```bash
-JOB=$(curl -s -X POST localhost:8000/api/v1/research \
+export ANALYST=$(uv run --group ui python scripts/get_token.py)
+export APPROVER=$(uv run --group ui python scripts/get_token.py)
+```
+
+```bash
+JOB=$(curl -s -X POST localhost:8000/api/v1/research -H "Authorization: Bearer $ANALYST" \
   -H 'content-type: application/json' \
   -d '{"query":"Compare Amazon and Microsoft cloud revenue growth and recent cloud news","companies":["Amazon","Microsoft"]}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
 
 # queued -> running (last_node / checkpoint_count show progress) -> awaiting_approval
-until curl -s localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(awaiting_approval|completed|failed)"'; do sleep 3; done
-curl -s localhost:8000/api/v1/research/$JOB | python3 -m json.tool   # "interrupt" holds the plan to review
+until curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(awaiting_approval|completed|failed)"'; do sleep 3; done
+curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | python3 -m json.tool   # "interrupt" holds the plan to review
 ```
 
-The job waits at `awaiting_approval` until someone decides:
+The job waits at `awaiting_approval` until an approver (not the submitter)
+decides:
 
 ```json
 "interrupt": {
@@ -184,16 +217,17 @@ The job waits at `awaiting_approval` until someone decides:
 
 ```bash
 # Reject with notes: the planner revises the plan and the job pauses again
-curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
-  -d '{"approved": false, "notes": "Use the latest fiscal year vs the prior year only."}'
+curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H "Authorization: Bearer $APPROVER" \
+  -H 'content-type: application/json' \
+  -d '{"approved": false, "notes": "Use the latest fiscal year vs the prior year only.", "expected_pass": 1}'
 
 # Approve pass 2: write -> critique. (Without the rejection, a critic that finds
 # gaps would re-plan once more; the rejection already used that pass.)
-curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
-  -d '{"approved": true, "expected_pass": 2}'
+curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H "Authorization: Bearer $APPROVER" \
+  -H 'content-type: application/json' -d '{"approved": true, "expected_pass": 2}'
 
-until curl -s localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(completed|failed)"'; do sleep 3; done
-curl -s localhost:8000/api/v1/research/$JOB | python3 -m json.tool
+until curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(completed|failed)"'; do sleep 3; done
+curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | python3 -m json.tool
 ```
 
 Result (trimmed, from a real run):
@@ -321,24 +355,26 @@ scores.
 A thin client over the API, for demonstrating the approval gate and crash
 resume and for reading reports. It is a demo harness, not a product. It talks
 to the system **only over HTTP** (`ui/api_client.py`). It runs in its own
-image containing just Streamlit and httpx, so it can't import the graph or
-reach Postgres.
+image containing just Streamlit, httpx and MSAL, so it can't import the graph
+or reach Postgres.
+
+**Sign-in:** click *Sign in with Microsoft*, open the URL shown and enter the
+code (device code flow, `ui/auth.py`). The sidebar shows who you are and your
+app roles, as the API sees them (`GET /api/v1/me`). Tokens live only in your
+browser session and are refreshed silently.
 
 | Screen | Who | What |
 |---|---|---|
-| Submit | everyone | question (with example presets), optional company filter from the index |
-| Jobs | everyone | recent jobs with status badges; for reviewers, jobs awaiting approval come first, flagged 🔔 |
-| Job detail | everyone | status, elapsed time, current node, pass counter, degraded-source warnings; live progress (polls every 2s until the job settles) |
-| ↳ tabs | everyone | **Report** (archived Markdown, data gaps up front, numbered citations, download), **Plan**, **Evidence** (filings + news, snippets as plain text), **Critique**, **Raw** JSON |
-| ↳ approval | Reviewer, Admin | the plan, evidence counts and sub-questions; **Approve**, or **Reject** with required notes (sends it back to the planner). Analysts see "Awaiting reviewer approval." |
-| Operations | Admin | index size, last ingestion (from the ingest CLI's manifest), job counts by status, running jobs; read-only |
+| Submit | analyst, approver | question (with example presets), optional company filter from the index |
+| Jobs | analyst: own jobs; approver: all | recent jobs with status badges; for approvers, jobs awaiting approval come first, flagged 🔔, with who submitted them |
+| Job detail | analyst (own), approver | status, elapsed time, current node, pass counter, degraded-source warnings; live progress (polls every 2s until the job settles) |
+| ↳ tabs | same | **Report** (archived Markdown, data gaps up front, numbered citations, download), **Plan**, **Evidence** (filings + news, snippets as plain text), **Critique**, **Raw** JSON |
+| ↳ approval | approver, not the submitter | the plan, evidence counts and sub-questions; **Approve**, or **Reject** with required notes (sends it back to the planner) |
+| Operations | approver | index size, last ingestion (from the ingest CLI's manifest), job counts by status, running jobs; read-only |
 
-**The role dropdown is a simulation, not access control.** "Simulated role
-(dev only)" only changes what the UI shows. Anyone can pick any role, and the
-API does not check roles: `POST /research/{id}/resume` is open to anyone who
-can reach it. Day 15 replaces the dropdown with the app role from the user's
-Entra ID token, enforced by the API. Until then, approval records store
-`reviewer: null` rather than trusting the dropdown.
+The UI only hides what the API would refuse anyway: roles and the
+"not your own job" rule are enforced by the API from the token. Approval
+records in the archive name the reviewer from their token.
 
 `Planner`, `Writer` and `Critic` are agent nodes in the graph, not human
 roles. The job view shows what each produced, as tabs.
@@ -387,6 +423,10 @@ Beyond the Azure endpoints in `.env.example`, all optional:
 | `LANGGRAPH_STRICT_MSGPACK` | `true` | only safe types may be loaded from checkpoints |
 | `REPORTS_CONTAINER` | `reports` | Blob container for the immutable report archive |
 | `API_BASE_URL` (UI only) | `http://api:8000` | where the Streamlit client sends its requests |
+| `AUTH_TENANT_ID` / `AUTH_API_CLIENT_ID` / `AUTH_UI_CLIENT_ID` | unset | Entra tenant and the two app registrations (`infra/entra/setup.sh`); required unless the bypass is on |
+| `ENVIRONMENT` | `local` | anything but `local` forbids `DEV_AUTH_BYPASS` |
+| `DEV_AUTH_BYPASS` | `false` | local only: skip token checks; identity from `X-Dev-User` / `X-Dev-Roles` headers |
+| `NEWS_SCREEN_ENABLED` | `true` | screen news for injected instructions before any prompt (fails closed) |
 
 ## Live news via MCP
 

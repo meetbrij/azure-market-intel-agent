@@ -111,6 +111,7 @@ async def test_resume_enqueues_decision(client: AsyncClient, queue: AsyncMock) -
         "approved": False,
         "notes": "Add Microsoft",
         "pass": 1,  # the worker applies it to this pass only
+        "reviewer": {"oid": "dev:dev-user", "name": "dev-user"},  # from the caller
     }
     assert call.kwargs["_job_id"].startswith(f"{job_id}:resume:")
 

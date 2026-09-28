@@ -38,12 +38,20 @@ class ResumeRequest(BaseModel):
     )
 
 
+class Me(BaseModel):
+    oid: str
+    name: str
+    roles: list[str]
+
+
 class JobSummary(BaseModel):
     job_id: str
     status: JobStatus
     query: str
     subject: str | None = None
     last_node: str | None = None
+    submitted_by: str | None = None
+    submitted_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -55,6 +63,8 @@ class JobSummary(BaseModel):
             query=job.query,
             subject=job.subject,
             last_node=job.last_node,
+            submitted_by=job.submitted_by,
+            submitted_by_name=job.submitted_by_name,
             created_at=job.created_at,
             updated_at=job.updated_at,
         )
@@ -82,6 +92,8 @@ class JobView(BaseModel):
     checkpoint_count: int = 0
     # The approval request while status == awaiting_approval.
     interrupt: dict[str, Any] | None = None
+    submitted_by: str | None = None
+    submitted_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -110,6 +122,8 @@ class JobView(BaseModel):
             last_node=job.last_node,
             checkpoint_count=job.checkpoint_count or 0,
             interrupt=job.interrupt,
+            submitted_by=job.submitted_by,
+            submitted_by_name=job.submitted_by_name,
             created_at=job.created_at,
             updated_at=job.updated_at,
         )

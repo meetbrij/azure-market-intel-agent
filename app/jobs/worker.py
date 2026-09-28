@@ -98,6 +98,7 @@ async def run_research(
                         await store.record_progress(
                             job_id, node, subject=plan.subject if plan else None
                         )
+                        await _audit_node(job_id, node, change or {})
         snapshot = await graph.aget_state(config)
         if snapshot.interrupts:
             await _await_approval(job_id, snapshot.interrupts[0].value)
@@ -116,6 +117,7 @@ async def run_research(
         await store.update_job(
             job_id, status=JobStatus.FAILED, error=f"{type(e).__name__}: {e}"
         )
+        await _audit_best_effort("job_failed", job_id, {"error": type(e).__name__})
         return
     prefix = await _archive_best_effort("report", archive.archive_report(job, state))
     if prefix:
@@ -123,7 +125,27 @@ async def run_research(
     await store.update_job(
         job_id, status=JobStatus.COMPLETED, result=state.report.model_dump(mode="json")
     )
+    await _audit_best_effort("job_completed", job_id, {"archive_prefix": prefix})
     log.info("Job %s completed", job_id)
+
+
+async def _audit_node(job_id: str, node: str, change: dict[str, Any]) -> None:
+    """Which model served the node (and its tokens), and any news the
+    injection screen withheld."""
+    for call in change.get("llm_calls") or []:
+        await _audit_best_effort("llm_call", job_id, call.model_dump(mode="json"))
+    for item in change.get("screened_out") or []:
+        await _audit_best_effort("news_item_withheld", job_id, dict(item))
+
+
+async def _audit_best_effort(action: str, job_id: str, detail: dict[str, Any]) -> None:
+    """The worker's own events must not fail a run whose result is fine; a
+    lost event is logged. (People's actions are audited in the API, where a
+    failed write blocks the action.)"""
+    try:
+        await store.record_audit(action, job_id=job_id, detail=detail)
+    except Exception:
+        log.exception("Audit write failed: %s for job %s", action, job_id)
 
 
 async def _archive_best_effort[T](what: str, write: Awaitable[T]) -> T | None:

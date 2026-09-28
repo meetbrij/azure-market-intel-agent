@@ -15,13 +15,19 @@ from langgraph.types import interrupt
 
 from app.config import get_settings
 from app.graph import prompts
-from app.graph.llm import complete_text, parse_structured, recording_calls
+from app.graph.llm import (
+    complete_text,
+    is_content_filtered,
+    parse_structured,
+    recording_calls,
+)
 from app.graph.retrieval import list_companies, search_many
 from app.graph.state import (
     Citation,
     Critique,
     DraftReport,
     Evidence,
+    InjectionScreen,
     LlmCall,
     Report,
     ReportSection,
@@ -40,6 +46,7 @@ NEWS_PER_COMPANY = 5
 DATA_GAP_LABELS = {
     "news": "live news unavailable",
     "filings": "filing search unavailable",
+    "news_screened": "some news items were withheld (possible prompt injection)",
 }
 
 
@@ -201,8 +208,78 @@ async def fetch_news(state: ResearchState) -> dict[str, Any]:
         # News is supplementary: degrade, never fail the run.
         log.exception("fetch_news: news tool failed; continuing without news")
         return {"degraded": ["news"]}
+    update: dict[str, Any] = {}
+    if new and get_settings().news_screen_enabled:
+        try:
+            async with asyncio.timeout(get_settings().node_timeout_s):
+                new, flagged, calls = await screen_news(new)
+        except Exception:
+            # Fail closed: news that couldn't be screened never reaches a prompt.
+            log.exception("fetch_news: injection screen failed; dropping all news")
+            return {"degraded": ["news"]}
+        update["llm_calls"] = calls
+        if flagged:
+            update["screened_out"] = flagged
+            update["degraded"] = ["news_screened"]
     log.info("fetch_news: %d new item(s)", len(new))
-    return {"news_evidence": state.news_evidence + new}
+    return update | {"news_evidence": state.news_evidence + new}
+
+
+PROMPT_SHIELD_REASON = "blocked by Azure OpenAI Prompt Shields (jailbreak detected)"
+
+
+async def _screen_batch(items: list[Evidence]) -> tuple[dict[int, str], list[LlmCall]]:
+    """{item number: reason} for the items the classifier flags."""
+    verdict, calls = await tracked(
+        parse_structured(
+            "screen",
+            prompts.SCREEN_SYSTEM,
+            prompts.screen_user([(e.title, e.snippet) for e in items]),
+            InjectionScreen,
+        )
+    )
+    reasons = {f.item: f.reason for f in verdict.flagged if 1 <= f.item <= len(items)}
+    return reasons, calls
+
+
+async def screen_news(
+    items: list[Evidence],
+) -> tuple[list[Evidence], list[dict[str, str]], list[LlmCall]]:
+    """Drop items flagged as instruction-like (prompt injection). Two layers:
+    our classifier call, and Azure's own Prompt Shields, which refuse a prompt
+    that carries a jailbreak. A refused batch is screened item by item, and an
+    item Azure refuses is flagged. Returns (kept, flagged records, calls);
+    every flag is logged."""
+    try:
+        reasons, calls = await _screen_batch(items)
+    except Exception as exc:
+        if not is_content_filtered(exc):
+            raise
+        log.warning("fetch_news: Azure refused the screening batch; screening items one by one")
+        reasons, calls = {}, []
+        for i, item in enumerate(items, 1):
+            try:
+                one, one_calls = await _screen_batch([item])
+            except Exception as item_exc:
+                if not is_content_filtered(item_exc):
+                    raise
+                reasons[i] = PROMPT_SHIELD_REASON
+                continue
+            calls += one_calls
+            if one:
+                reasons[i] = next(iter(one.values()))
+    kept, flagged = [], []
+    for i, e in enumerate(items, 1):
+        if i not in reasons:
+            kept.append(e)
+            continue
+        log.warning(
+            "fetch_news: screen flagged %s (%s): %s", e.reference, e.company, reasons[i]
+        )
+        flagged.append(
+            {"url": e.reference, "company": e.company or "", "reason": reasons[i]}
+        )
+    return kept, flagged, calls
 
 
 # ---------- compact ----------
@@ -276,7 +353,13 @@ async def approve_gate(state: ResearchState) -> dict[str, Any]:
     notes = decision.get("notes") or None
     log.info("approve_gate: approved=%s notes=%r", approved, notes)
     update: dict[str, Any] = {
-        "approval": {"approved": approved, "mode": "human", "notes": notes}
+        "approval": {
+            "approved": approved,
+            "mode": "human",
+            "notes": notes,
+            # Who decided (from their Entra token, via POST /resume).
+            "reviewer": decision.get("reviewer"),
+        }
     }
     if not approved and state.loop_count >= MAX_LOOPS:
         log.warning("approve_gate: rejected on the final pass; ending the run")

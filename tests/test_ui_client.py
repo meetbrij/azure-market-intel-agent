@@ -70,3 +70,22 @@ def test_list_jobs_passes_filters() -> None:
 
     client_for(record).list_jobs(status="awaiting_approval", limit=10)
     assert dict(seen[0].url.params) == {"limit": "10", "status": "awaiting_approval"}
+
+
+def test_auth_headers_are_fetched_per_request() -> None:
+    tokens = iter(["t1", "t2"])  # e.g. MSAL refreshed the token in between
+    seen: list[str] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["authorization"])
+        return httpx.Response(200, json={"oid": "o", "name": "n", "roles": ["analyst"]})
+
+    client = ApiClient(
+        "http://api.test",
+        transport=httpx.MockTransport(record),
+        auth_headers=lambda: {"Authorization": f"Bearer {next(tokens)}"},
+    )
+    assert client.me()["roles"] == ["analyst"]
+    client.me()
+
+    assert seen == ["Bearer t1", "Bearer t2"]

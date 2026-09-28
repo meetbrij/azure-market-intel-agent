@@ -1,7 +1,6 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 14.5
-(after the pre-Day 15 code review). Each
+Trade-offs we accepted on purpose, and gaps we know about, as of Day 15. Each
 entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
@@ -14,13 +13,14 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
-| **No authentication.** Anyone who can reach the API can submit, read and **approve** jobs; `POST /resume` is open. | High | A local demo on a laptop; the spec schedules auth for Day 15 | Day 15: Entra ID tokens, `analyst`/`approver` roles |
-| The UI's role dropdown is a simulation; approval records have `reviewer: null` | High | Clearly labelled; nothing trusts it | Day 15 |
 | Report immutability is enforced by the app (`overwrite=False`), not by the storage account | Medium | Enough to show the design; a policy is an infrastructure setting | A container immutability policy (WORM) at deployment |
-| No classifier screen for injected instructions in news; defences are sanitising, fencing and escaping only | Medium | Layers 1–3 are in place | Day 15: classifier pass, ADR 0004 |
-| No audit table; decisions are recorded only in the archive and logs | Medium | The archive covers approvals and provenance for completed jobs | Day 15: append-only `audit_events` |
+| `audit_events` is append-only through the app and a trigger, but the app's database user owns the table and could drop the trigger | Medium | Stops accidental or app-level tampering; the local Postgres has one user | Day 18: a separate, non-owner role for the app; or ship events to an external log store |
+| A token stays valid until it expires (about an hour): removing a role or a user takes effect only at the next token | Low | Standard for bearer tokens; short lifetime | Continuous access evaluation, or a short token lifetime policy |
+| Device code sign-in can be phished (an attacker sends someone a code to enter) | Low | Demo client for known users; tenant-only app; assignment required | A web front end with the auth code flow + PKCE |
+| The injection screen uses the same model family as the writer, and its false positives drop genuine news | Low | Prompt Shields is an independent second detector; news is supplementary and withheld items are reported | A dedicated classifier; measure precision/recall on a labelled set |
+| Jobs created before Day 15 have no submitter, so only approvers can see them | Low | Old demo data | — |
 | Local containers authenticate with your Azure CLI login (mounted `~/.azure`) | Low | Local development only; the deployable image doesn't include it | Day 18: managed identity |
-| Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | No external users yet | Day 15: a generic message for clients, details in logs only |
+| Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | Clients are now only signed-in users of this tenant | Day 16: a generic message for clients, details in logs and traces |
 | Markdown neutralising misses reference-style links (`[x][1]` plus `[1]: url`) in model prose | Low | Needs a model to produce them; images, inline links and HTML are handled (D-38) | Drop link-definition lines when rendering |
 
 ## Durability and operations
@@ -104,3 +104,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The page-hit metric counted another company's page for comparisons (hybrid overstated 88% vs 76%) | Day 14.5 | Per-source page hit; results re-scored (D-58) |
 | UI rendered critique, plan and job titles as Markdown (links from web-influenced text) | Day 14.5 | Escaped |
 | Postgres and Redis were published on all interfaces | Day 14.5 | Bound to 127.0.0.1 (D-59) |
+| **No authentication**: anyone who could reach the API could submit, read and approve | Day 15 | Entra ID tokens validated by the API; `analyst`/`approver` app roles (D-60, D-61) |
+| The UI's role dropdown was a simulation; approvals recorded `reviewer: null` | Day 15 | Roles from the token; the reviewer's identity on each decision and in the archive; submitters can't approve (D-62, D-67) |
+| No classifier screen for injected instructions in news | Day 15 | Classifier + Azure Prompt Shields, fail closed (D-66, ADR 0004) |
+| No audit table | Day 15 | Append-only `audit_events` (D-65) |

@@ -40,6 +40,16 @@ def _messages(system: str, user: str) -> list[dict[str, str]]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def is_content_filtered(exc: BaseException) -> bool:
+    """Azure OpenAI refused the prompt (content filter, including Prompt
+    Shields' jailbreak detection). Never retried: the same prompt is refused
+    again, on any deployment."""
+    return (
+        isinstance(exc, openai.BadRequestError)
+        and getattr(exc, "code", None) == "content_filter"
+    )
+
+
 def _falls_back(exc: BaseException) -> bool:
     return isinstance(
         exc, openai.RateLimitError | openai.APITimeoutError | TimeoutError

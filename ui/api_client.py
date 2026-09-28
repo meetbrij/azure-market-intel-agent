@@ -3,6 +3,7 @@
 The UI never imports the graph or job models and never touches Postgres.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -23,15 +24,25 @@ class ApiClient:
         base_url: str,
         timeout: float = 20.0,
         transport: httpx.BaseTransport | None = None,  # tests inject a mock
+        auth_headers: Callable[[], dict[str, str]] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        # Called per request, so a refreshed token is always the one sent.
+        self._auth_headers = auth_headers
         self._http = httpx.Client(
             base_url=self.base_url, timeout=timeout, transport=transport
         )
 
     def _headers(self) -> dict[str, str]:
-        # Day 15: add {"Authorization": f"Bearer {token}"} here (MSAL device code).
-        return {"Accept": "application/json"}
+        headers = {"Accept": "application/json"}
+        if self._auth_headers is not None:
+            headers |= self._auth_headers()
+        return headers
+
+    def me(self) -> dict[str, Any]:
+        """The caller's identity and app roles, as the API sees them."""
+        result: dict[str, Any] = self._request("GET", "/api/v1/me").json()
+        return result
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:

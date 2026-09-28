@@ -30,6 +30,20 @@ class Settings(BaseSettings):
 
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # Entra ID auth (Day 15). The API validates v2 access tokens issued by
+    # AUTH_TENANT_ID for the AUTH_API_CLIENT_ID app registration (see
+    # infra/entra/setup.sh). DEV_AUTH_BYPASS skips validation and takes the
+    # caller's identity from X-Dev-User / X-Dev-Roles headers; startup refuses
+    # it unless ENVIRONMENT is "local".
+    environment: str = "local"
+    dev_auth_bypass: bool = False
+    auth_tenant_id: str | None = None
+    auth_api_client_id: str | None = None
+
+    # Screen news for instruction-like content (one cheap model call per
+    # fetch) before it can reach a prompt. Fails closed: no screen, no news.
+    news_screen_enabled: bool = True
+
     # Local defaults; docker-compose overrides the hostnames.
     database_url: str = "postgresql+asyncpg://mia:mia@localhost:5432/mia"
     redis_url: str = "redis://localhost:6379/0"

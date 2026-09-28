@@ -51,6 +51,17 @@ class LlmCall(BaseModel):
     at: str  # ISO timestamp (UTC)
 
 
+class ScreenedItem(BaseModel):
+    """One news item the injection screen flagged, by its number in the batch."""
+
+    item: int
+    reason: str = Field(description="a few words: what instruction-like content")
+
+
+class InjectionScreen(BaseModel):
+    flagged: list[ScreenedItem] = []
+
+
 class Critique(BaseModel):
     is_complete: bool
     missing: list[str] = []
@@ -136,4 +147,6 @@ class ResearchState(BaseModel):
     approval: dict[str, Any] | None = None
     # Appended by each LLM node; kept for the archived provenance record.
     llm_calls: Annotated[list[LlmCall], operator.add] = []
+    # News items withheld by the injection screen ({url, company, reason}).
+    screened_out: Annotated[list[dict[str, str]], operator.add] = []
     error: str | None = None

@@ -23,6 +23,7 @@ dependencies = [
     "psycopg-pool>=3.3.3",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
+    "pyjwt[crypto]>=2.10",
     "pypdf>=6.19.0",
     "python-dotenv>=1.2.3",
     "pyyaml>=6.0.3",
@@ -42,6 +43,7 @@ dev = [
 ]
 ui = [
     "httpx>=0.28.1",
+    "msal>=1.31",
     "streamlit>=1.64.0",
 ]
 

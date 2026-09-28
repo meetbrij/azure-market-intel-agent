@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 14, plus the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 15, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -76,8 +76,16 @@ day's definition of done.
 | D-57 | 14.5 | Evaluation | The gate fails on a missing score and on an answered unanswerable |
 | D-58 | 14.5 | Evaluation | Page hit is per source; stored results recomputed |
 | D-59 | 14.5 | Platform | Data ports on localhost only; bounded `companies` filter |
+| D-60 | 15 | Security | The API validates Entra ID v2 access tokens itself |
+| D-61 | 15 | Security | Two app roles; analysts see only their own jobs |
+| D-62 | 15 | Human loop | Separation of duties: nobody approves their own job |
+| D-63 | 15 | Security | Dev bypass is local-only, enforced at startup |
+| D-64 | 15 | Security | App registrations by script: no secrets, assignment required, device code UI |
+| D-65 | 15 | Governance | Append-only `audit_events`; a person's action needs its audit record |
+| D-66 | 15 | Security | News is screened for injection before any prompt; fails closed |
+| D-67 | 15 | UI | The UI shows identity and roles from the API and hides what it would refuse |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-16](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-17](#found-in-live-testing).
 
 ---
 
@@ -443,7 +451,9 @@ hybrid and semantic ranking.
   - The only third-party secret (Tavily) is read from Key Vault by the MCP
     server alone.
   - Model and deployment names come from environment variables.
-- **Status:** Active. Managed identity comes in Phase 3 / Day 18.
+- **Status:** Active. Managed identity comes in Phase 3 / Day 18. Day 15
+  checked for remaining local key handling and found none. The Entra app
+  registrations it adds have no client secrets (D-64).
 
 ### D-22 · Web content is untrusted: sanitise twice, fence in prompts · Day 8
 - **Decision:**
@@ -453,7 +463,8 @@ hybrid and semantic ranking.
   - Prompts fence news text in `<untrusted_web_content>`.
   - The stdio server receives only the environment variables Key Vault needs.
 - **Status:** Active. D-54 closed an encoded-entity bypass of the fence. Day
-  15 adds a classifier screen.
+  15 added a classifier screen (D-66), and ADR 0004 describes all the
+  layers.
 
 ### D-38 · Disarm Markdown from untrusted sources · Day 12
 - **Context:** A news snippet starting with `#` rendered as a heading in the
@@ -473,7 +484,8 @@ hybrid and semantic ranking.
   - The role dropdown is labelled "Simulated role (dev only)".
   - The README says it has no security value.
   - Approval records store `reviewer: null` rather than trusting the dropdown.
-- **Status:** Active until Day 15 (Entra ID).
+- **Status:** Superseded on Day 15 by D-61, D-62 and D-67. The dropdown is
+  gone, and roles come from the token.
 
 ---
 
@@ -742,6 +754,126 @@ in the limitations.
 
 ---
 
+## Security and governance (Day 15)
+
+### D-60 · The API validates Entra ID v2 access tokens itself · Day 15
+- **Decision:**
+  - Every `/api/v1` route needs a bearer token.
+  - `app/api/auth.py` checks the RS256 signature against the tenant's JWKS
+    (PyJWT's cached `PyJWKClient`).
+  - It checks the issuer (`login.microsoftonline.com/{tenant}/v2.0`), the
+    audience (the API's client id, or `api://` plus it), the tenant, and
+    expiry with 60 s of leeway. It requires `oid`, and ignores `alg: none`.
+  - The caller is identified by `oid`, not by name or email.
+  - `/health` stays open for probes.
+- **Why no gateway or library middleware:** the checks are about 40 lines,
+  every rule is visible and tested, and it works the same on the laptop,
+  kind and Azure.
+- **Keys outage:** if the signing keys can't be fetched, the API returns
+  503, not 401. An Entra outage shouldn't look like a bad token.
+- **Tested:** real RS256 tokens signed by a local key cover wrong audience,
+  issuer, tenant, expiry, forged signature and an unsigned token.
+- **Status:** Active.
+
+### D-61 · Two app roles; analysts see only their own jobs · Day 15
+- **Decision:**
+  - `analyst` can submit, list and read their own jobs.
+  - `approver` can do all that, see every job, see operations status, and
+    decide approvals.
+  - Roles are Entra app roles, so they arrive in the token's `roles` claim.
+    Assignment is per user; the Free tier doesn't support groups.
+  - Someone else's job returns 404, not 403, so job ids can't be probed.
+  - Jobs record `submitted_by` (the `oid`) and a display name, as additive
+    columns. Pre-Day 15 jobs have none and are visible only to approvers.
+- **Status:** Active.
+
+### D-62 · Separation of duties: nobody approves their own job · Day 15
+- **Decision:**
+  - `POST /resume` returns 403 if the caller submitted the job, even with
+    the approver role, and audits the attempt as `approval_refused`.
+  - The reviewer's `oid` and name travel with the decision into graph state
+    and `approval-pass{n}.json`, which replaces `reviewer: null`.
+- **Why:** the spec says the gate has real meaning only when a different
+  person approves. A role check alone would let an approver wave through
+  their own work.
+- **Status:** Active.
+
+### D-63 · Dev bypass is local-only, enforced at startup · Day 15
+- **Decision:**
+  - `DEV_AUTH_BYPASS` defaults to false.
+  - When it's on, the caller's identity comes from `X-Dev-User` and
+    `X-Dev-Roles` headers, which is how the offline tests run.
+  - API startup raises if the bypass is on and `ENVIRONMENT != local`, and
+    also raises if real mode lacks the tenant or client id.
+- **Verified:** the real image with `ENVIRONMENT=prod` and the bypass on
+  refuses to start.
+- **Status:** Active.
+
+### D-64 · App registrations by script: no secrets, assignment required, device code UI · Day 15
+- **Decision:** `infra/entra/setup.sh` creates two registrations and is safe
+  to re-run (the scope and role ids are fixed):
+  - **`mia-api`:**
+    - exposes `api://<id>` with the delegated scope `access_as_user`;
+    - defines the `analyst` and `approver` app roles;
+    - issues v2 tokens;
+    - sets `appRoleAssignmentRequired`, so users without a role can't even
+      get a token.
+  - **`mia-ui`:** a public client for device code, with tenant-wide admin
+    consent to that scope.
+  - **No client secrets anywhere:** the API only validates tokens, and the
+    UI is a public client.
+- **Why device code:** Streamlit can't easily host a redirect-based sign-in.
+  Device code needs no redirect URI and works the same in a container. MSAL's
+  token cache lives in the browser session only.
+- **Status:** Active. Assigned: analyst to the Gmail account, approver to
+  `approver@…onmicrosoft.com`.
+
+### D-65 · Append-only `audit_events`; a person's action needs its audit record · Day 15
+- **Decision:**
+  - **Table columns:** `at`, `actor` (an `oid`, or `system`), `actor_name`,
+    `action`, `job_id`, `detail`.
+  - **Events:**
+    - `job_submitted`, written in the same transaction as the job.
+    - `approval_decided` and `approval_refused`.
+    - `llm_call`: node, deployment, tokens.
+    - `news_item_withheld`.
+    - `job_completed` and `job_failed`.
+  - **Append-only:** the app has no update or delete path, and on Postgres a
+    trigger refuses UPDATE, DELETE and TRUNCATE (verified live).
+  - **When a write fails:**
+    - For a person's action (submit, decide), the action fails too; a
+      decision is un-claimed and returns 503.
+    - For the worker's own events, the failure is logged and the run
+      carries on.
+  - The API doesn't expose the table, as the spec asks.
+- **Status:** Active. The trigger doesn't stop a database superuser (see the
+  limitations).
+
+### D-66 · News is screened for injection before any prompt; fails closed · Day 15
+- **Decision:**
+  - A classifier call flags instruction-like news items, and Azure's Prompt
+    Shields refusals count as flags.
+  - A flagged item is dropped, recorded in `screened_out`, audited, and
+    marked in `degraded` (`news_screened`).
+  - If the screen can't run, all of that batch's news is dropped.
+  - `NEWS_SCREEN_ENABLED` switches it off.
+  - Details and the other layers: ADR 0004.
+- **Status:** Active; checked live (3 of 3 attacks flagged, 0 of 3 genuine
+  items).
+
+### D-67 · The UI shows identity and roles from the API and hides what it would refuse · Day 15
+- **Decision:**
+  - The sidebar shows the user and their roles from `GET /api/v1/me`.
+  - The approve and reject buttons are hidden from analysts, and from the
+    job's own submitter.
+  - Operations is shown to approvers only.
+  - None of this is security; the API enforces it.
+  - Without the `AUTH_*` settings, the UI runs in a labelled dev mode that
+    sends the dev headers.
+- **Status:** Active.
+
+---
+
 ## Found in live testing
 
 Bugs that only appeared in real runs, never in unit tests, and the fix each
@@ -765,6 +897,7 @@ one led to.
 | F-14 | 13 | RAGAS conflicts and name-based reasoning-model detection | D-41 |
 | F-15 | 13 | Token waits inflated retrieval latency; the page-hit metric overstated hits | D-43; metric relabelled |
 | F-16 | 14 | The fallback metric counted a plain-hybrid run as 30 "semantic fallbacks" | Count fallbacks only for `hybrid_semantic` runs (D-48); stored results recomputed |
+| F-17 | 15 | Azure Prompt Shields refused the whole screening batch (400 `content_filter`) because one item was a jailbreak, which would have dropped all news. Before Day 15, such a snippet reaching `compact` or `write` would have failed the job. | Treat the refusal as a flag: screen item by item (D-66, ADR 0004) |
 
 ---
 

@@ -11,6 +11,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI
 
+from app.api.auth import check_auth_config
 from app.api.routes import router
 from app.azure_clients import close_async_clients
 from app.config import get_settings
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    check_auth_config(get_settings())  # refuse to start with an unsafe auth setup
     await init_db()
     app.state.arq = await create_pool(RedisSettings.from_dsn(get_settings().redis_url))
     async with AsyncExitStack() as stack:
