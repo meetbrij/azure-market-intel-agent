@@ -6,6 +6,7 @@ plan -> (retrieve_filings || fetch_news) -> compact -> approve_gate -> write
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable
 from typing import Any
 
@@ -67,7 +68,13 @@ def rejected(state: ResearchState) -> bool:
 
 
 async def plan(state: ResearchState) -> dict[str, Any]:
-    available = await list_companies()
+    try:
+        available = await list_companies()
+    except Exception:
+        # Degrade, don't fail: keep the request's own filter. If Search is
+        # really down, retrieve_filings records the gap.
+        log.exception("plan: could not list indexed companies; using the request's")
+        available = list(state.companies)
     # A reviewer rejection takes precedence over the critique: revise the whole
     # plan per their notes rather than narrowing to the critic's gaps.
     reviewer_notes = (
@@ -89,7 +96,12 @@ async def plan(state: ResearchState) -> dict[str, Any]:
             ResearchPlan,
         )
     )
-    result.companies = resolve_companies(result.companies, state.companies, available)
+    requested = state.companies
+    if rejected(state) and requested:
+        # A reviewer may narrow the request's filter ("Amazon only"), never widen it.
+        wanted = {c.lower() for c in requested}
+        requested = [c for c in result.companies if c.lower() in wanted] or requested
+    result.companies = resolve_companies(result.companies, requested, available)
     result.sub_questions = [q for q in result.sub_questions if q.strip()][
         :MAX_SUB_QUESTIONS
     ] or [state.query]
@@ -100,7 +112,17 @@ async def plan(state: ResearchState) -> dict[str, Any]:
         result.companies,
         result.needs_live_news,
     )
-    return {"plan": result, "loop_count": state.loop_count + 1, "llm_calls": calls}
+    update: dict[str, Any] = {
+        "plan": result,
+        "loop_count": state.loop_count + 1,
+        "llm_calls": calls,
+    }
+    if rejected(state):
+        # The reviewer turned the previous plan down: its evidence (e.g. for
+        # companies they asked to drop) must not reach the writer. A critic
+        # loop, by contrast, keeps and extends what it already found.
+        update |= {"filing_evidence": [], "news_evidence": []}
+    return update
 
 
 # ---------- evidence ----------
@@ -225,6 +247,9 @@ def approval_request(state: ResearchState) -> dict[str, Any]:
     assert state.plan is not None
     return {
         "pass": state.loop_count,
+        # Rejecting on the final pass ends the run (D-27: rejections count
+        # toward MAX_LOOPS), so the reviewer is told up front.
+        "final_pass": state.loop_count >= MAX_LOOPS,
         "subject": state.plan.subject,
         "companies": state.plan.companies,
         "sub_questions": state.plan.sub_questions,
@@ -250,11 +275,21 @@ async def approve_gate(state: ResearchState) -> dict[str, Any]:
     approved = bool(decision.get("approved", False))
     notes = decision.get("notes") or None
     log.info("approve_gate: approved=%s notes=%r", approved, notes)
-    return {"approval": {"approved": approved, "mode": "human", "notes": notes}}
+    update: dict[str, Any] = {
+        "approval": {"approved": approved, "mode": "human", "notes": notes}
+    }
+    if not approved and state.loop_count >= MAX_LOOPS:
+        log.warning("approve_gate: rejected on the final pass; ending the run")
+        if state.report is None:
+            update["error"] = "plan rejected on the final pass (loop cap reached)"
+    return update
 
 
 def route_after_approval(state: ResearchState) -> str:
-    return "plan" if rejected(state) else "write"
+    if not rejected(state):
+        return "write"
+    # Same cap as the critic loop. An earlier pass's report, if any, stands.
+    return "plan" if state.loop_count < MAX_LOOPS else END
 
 
 # ---------- write ----------
@@ -265,9 +300,35 @@ def normalize_reference(ref: str) -> str:
     return ref.strip().strip("[]").strip()
 
 
+_WORD = re.compile(r"\w+")
+_ELLIPSIS = re.compile(r"\.\.\.|…")
+
+
+def _words(text: str) -> str:
+    """Case, punctuation and whitespace folded away, for quote matching."""
+    return " ".join(_WORD.findall(text.casefold()))
+
+
+def quote_in_snippet(quote: str, snippet: str) -> bool:
+    """The quote's text appears in the snippet, in order. An ellipsis in the
+    quote may skip text; everything else must match word for word."""
+    haystack = f" {_words(snippet)} "
+    pos = 0
+    for fragment in _ELLIPSIS.split(quote):
+        needle = _words(fragment)
+        if not needle:
+            continue
+        found = haystack.find(f" {needle} ", pos)
+        if found < 0:
+            return False
+        pos = found + len(needle) + 1
+    return True
+
+
 def hydrate(draft: DraftReport, evidence: list[Evidence]) -> Report:
-    """Turn reference-only citations into full citations; drop any whose
-    reference isn't in the evidence (the model can't cite what we didn't find)."""
+    """Turn reference-only citations into full citations. Drop any whose
+    reference isn't in the evidence (the model can't cite what we didn't find)
+    or whose quote isn't in that evidence's text (nor misquote what we did)."""
     by_ref = {e.reference: e for e in evidence}
     sections: list[ReportSection] = []
     for s in draft.sections:
@@ -277,6 +338,13 @@ def hydrate(draft: DraftReport, evidence: list[Evidence]) -> Report:
             if e is None:
                 log.warning(
                     "write: dropped citation to unknown reference %r", c.reference
+                )
+                continue
+            if not quote_in_snippet(c.quote, e.snippet):
+                log.warning(
+                    "write: dropped citation to %r: quote not in the source: %r",
+                    e.reference,
+                    c.quote,
                 )
                 continue
             citations.append(

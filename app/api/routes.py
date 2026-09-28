@@ -204,23 +204,40 @@ async def resume_research(job_id: str, body: ResumeRequest, queue: Queue) -> Job
             status.HTTP_409_CONFLICT,
             f"Job {job_id} is {job.status}, not awaiting_approval",
         )
+    # Read after claiming, so this is the pass we now hold and can't change.
+    claimed_job = await store.get_job(job_id)
+    pass_no = ((claimed_job.interrupt if claimed_job else None) or {}).get("pass")
+    if body.expected_pass is not None and body.expected_pass != pass_no:
+        await _unclaim(job_id)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Job {job_id} is awaiting approval of pass {pass_no}, "
+            f"not pass {body.expected_pass}",
+        )
+    # The worker applies the decision only to this pass, so a stale or retried
+    # task can never approve a later plan.
+    decision = {"approved": body.approved, "notes": body.notes, "pass": pass_no}
     try:
         # A fresh arq id: the original task id is still held by its result.
         await queue.enqueue_job(
             "run_research",
             job_id,
-            resume=body.model_dump(),
+            resume=decision,
             _job_id=f"{job_id}:resume:{uuid.uuid4().hex[:8]}",
         )
     except Exception as e:
         log.exception("Enqueue failed resuming job %s", job_id)
-        await store.transition(
-            job_id, from_status=JobStatus.QUEUED, to_status=JobStatus.AWAITING_APPROVAL
-        )
+        await _unclaim(job_id)
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Job queue unavailable"
         ) from e
     return JobCreated(job_id=job_id, status=JobStatus.QUEUED)
+
+
+async def _unclaim(job_id: str) -> None:
+    await store.transition(
+        job_id, from_status=JobStatus.QUEUED, to_status=JobStatus.AWAITING_APPROVAL
+    )
 
 
 @router.get("/health", response_model=Health)

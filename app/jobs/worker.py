@@ -53,7 +53,20 @@ async def run_research(
     snapshot = await graph.aget_state(config)
     started = bool(snapshot.values)
     pending: Any
-    if resume is not None and snapshot.interrupts:
+    if resume is not None:
+        waiting = snapshot.interrupts[0].value.get("pass") if snapshot.interrupts else None
+        if job.status != JobStatus.QUEUED or waiting is None or resume.get("pass") != waiting:
+            # E.g. arq retrying an old resume task after a crash: its decision
+            # was for another pass (or recovery already owns the job). Applying
+            # it would approve a plan no human saw.
+            log.warning(
+                "Job %s: dropping stale resume for pass %s (job %s, waiting on pass %s)",
+                job_id,
+                resume.get("pass"),
+                job.status,
+                waiting,
+            )
+            return
         pending = Command(resume=resume)
         log.info("Job %s resuming after approval: %s", job_id, resume)
         await _archive_best_effort(
@@ -186,5 +199,8 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     on_startup = startup
     on_shutdown = shutdown
-    job_timeout = 600
+    # One task can run a whole segment: plan -> ... -> critique -> plan ->
+    # ... -> compact, with each LLM node capped at NODE_TIMEOUT_S (300s). 600s
+    # could cut a slow but healthy run and leave it "running" until restart.
+    job_timeout = 1800
     max_jobs = 4

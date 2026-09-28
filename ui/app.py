@@ -161,7 +161,7 @@ def jobs_screen() -> None:
         flag = " 🔔" if reviewer and job["status"] == "awaiting_approval" else ""
         c1.markdown(badge(job["status"]) + flag)
         title = job["subject"] or job["query"]
-        c2.markdown(title if len(title) <= 110 else title[:107] + "…")
+        c2.markdown(md_escape(title if len(title) <= 110 else title[:107] + "…"))
         c3.caption(parse_ts(job["created_at"]).strftime("%Y-%m-%d %H:%M UTC"))
         c4.button(
             "View",
@@ -207,17 +207,19 @@ def approval_panel(job: dict[str, Any]) -> None:
     c1.metric("Filing evidence", counts.get("filings", 0))
     c2.metric("News evidence", counts.get("news", 0))
     c3.metric("Pass", request.get("pass", "?"))
-    st.markdown(f"**Subject:** {request.get('subject', '—')}")
+    st.markdown(f"**Subject:** {md_escape(request.get('subject', '—'))}")
     st.markdown(
         f"**Companies:** {', '.join(request.get('companies', [])) or 'any'} · "
         f"**Live news requested:** {'yes' if request.get('needs_live_news') else 'no'}"
     )
     st.markdown("**Sub-questions:**")
     for i, q in enumerate(request.get("sub_questions", []), 1):
-        st.markdown(f"{i}. {q}")
+        st.markdown(f"{i}. {md_escape(q)}")
     for source in request.get("degraded", []):
         st.warning(f"Source unavailable for this plan: **{source}**")
 
+    if request.get("final_pass"):
+        st.info("Final pass: rejecting ends the job instead of re-planning.")
     if role not in APPROVERS:
         st.info("Awaiting reviewer approval.")
         return
@@ -229,12 +231,14 @@ def approval_panel(job: dict[str, Any]) -> None:
     a, r, _ = st.columns([1, 1, 4])
     try:
         if a.button("Approve", type="primary", key=f"approve-{job_id}-{pass_no}"):
-            api().resume(job_id, approved=True)
+            api().resume(job_id, approved=True, expected_pass=pass_no)
             st.rerun()
         if r.button(
             "Reject", disabled=not notes.strip(), key=f"reject-{job_id}-{pass_no}"
         ):
-            api().resume(job_id, approved=False, notes=notes.strip())
+            api().resume(
+                job_id, approved=False, notes=notes.strip(), expected_pass=pass_no
+            )
             st.rerun()
     except ApiError as e:
         show_error(e)
@@ -276,14 +280,14 @@ def plan_tab(job: dict[str, Any]) -> None:
     if not plan:
         st.info("No plan yet.")
         return
-    st.markdown(f"**Subject:** {plan['subject']}")
+    st.markdown(f"**Subject:** {md_escape(plan['subject'])}")
     st.markdown(
         f"**Companies:** {', '.join(plan['companies']) or 'any'} · "
         f"**Live news requested:** {'yes' if plan['needs_live_news'] else 'no'} · "
         f"**Passes:** {job.get('loop_count', 0)}"
     )
     for i, q in enumerate(plan["sub_questions"], 1):
-        st.markdown(f"{i}. {q}")
+        st.markdown(f"{i}. {md_escape(q)}")
 
 
 def evidence_tab(job: dict[str, Any]) -> None:
@@ -312,9 +316,12 @@ def critique_tab(job: dict[str, Any]) -> None:
     else:
         st.warning("The critic found gaps (the loop is capped at two passes).")
     st.markdown("**Missing**")
-    st.markdown("\n".join(f"- {m}" for m in critique["missing"]) or "_none_")
+    # The critic read web content: its text is shown literally, never as links.
+    missing = critique["missing"]
+    st.markdown("\n".join(f"- {md_escape(m)}" for m in missing) or "_none_")
     st.markdown("**Citation problems**")
-    st.markdown("\n".join(f"- {p}" for p in critique["citation_problems"]) or "_none_")
+    problems = critique["citation_problems"]
+    st.markdown("\n".join(f"- {md_escape(p)}" for p in problems) or "_none_")
 
 
 def job_screen(job_id: str) -> None:
@@ -411,7 +418,7 @@ def operations_screen() -> None:
         st.caption("None.")
     for job in running:
         c1, c2, c3 = st.columns([6, 3, 1])
-        c1.markdown(job["subject"] or job["query"])
+        c1.markdown(md_escape(job["subject"] or job["query"]))
         c2.caption(
             f"last node `{job.get('last_node')}` · updated {job['updated_at'][:19]}"
         )

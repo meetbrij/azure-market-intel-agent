@@ -19,10 +19,17 @@ _WS = re.compile(r"\s+")
 
 
 def clean_text(value: object, limit: int) -> str:
+    # Decode entities *before* stripping tags, and repeat until nothing
+    # changes: otherwise "&lt;/tag&gt;" (or a double-encoded form) survives
+    # the strip and turns back into a live tag, e.g. a fake fence close.
     text = str(value or "")
-    text = _SCRIPT_STYLE.sub(" ", text)
-    text = _TAG.sub(" ", text)
-    text = html.unescape(text)
+    for _ in range(5):
+        before = text
+        text = html.unescape(text)
+        text = _SCRIPT_STYLE.sub(" ", text)
+        text = _TAG.sub(" ", text)
+        if text == before:
+            break
     text = _WS.sub(" ", text).strip()
     if len(text) > limit:
         text = text[: limit - 1].rstrip() + "…"

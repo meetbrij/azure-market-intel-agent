@@ -7,10 +7,17 @@ import pytest
 from pydantic import ValidationError
 
 from evals.answer import Sample
-from evals.golden import GoldenItem, load_golden, load_pricing, load_thresholds
+from evals.golden import (
+    GoldenItem,
+    Thresholds,
+    load_golden,
+    load_pricing,
+    load_thresholds,
+)
 from evals.metrics import (
     citation_validity,
     cost_usd,
+    gate,
     page_hit,
     percentile,
     source_hit,
@@ -106,11 +113,51 @@ def test_citation_validity_counts_citations_not_samples() -> None:
 
 
 def test_source_and_page_hits() -> None:
-    comparative = item(expected_sources=[AMZN, GOOGL], expected_pages=[24, 34])
+    comparative = item(
+        expected_sources=[AMZN, GOOGL], expected_pages={AMZN: [24], GOOGL: [34]}
+    )
     assert not source_hit(sample(), comparative)  # Google filing missing
     assert source_hit(sample(retrieved_sources=[AMZN, GOOGL]), comparative)
     assert page_hit(sample(), item())  # AMZN p.24 retrieved
     assert not page_hit(sample(retrieved_pages=[(AMZN, 99)]), item())
+
+
+def test_comparative_page_hit_needs_each_companys_own_page() -> None:
+    comparative = item(
+        expected_sources=[AMZN, GOOGL], expected_pages={AMZN: [24], GOOGL: [34]}
+    )
+    assert not page_hit(sample(), comparative)  # only Amazon's page
+    assert not page_hit(  # Google p.24 is not Google's answer page
+        sample(retrieved_pages=[(AMZN, 24), (GOOGL, 24)]), comparative
+    )
+    assert page_hit(sample(retrieved_pages=[(AMZN, 24), (GOOGL, 34)]), comparative)
+    with pytest.raises(ValidationError):  # a flat list is ambiguous for two sources
+        item(expected_sources=[AMZN, GOOGL], expected_pages=[24, 34])
+
+
+def test_gate_fails_on_missing_or_nan_scores_and_on_answered_unanswerables() -> None:
+    t = Thresholds(
+        smoke_ids=[], faithfulness=0.9, citation_validity=0.8, abstention_rate=1.0
+    )
+    good = {"faithfulness": 1.0, "citation_validity": 1.0, "abstention_rate": 1.0}
+    assert gate(good, t) == []
+    assert gate({**good, "faithfulness": float("nan")}, t) == [
+        "faithfulness could not be computed"
+    ]
+    assert gate({**good, "citation_validity": None}, t) == [
+        "citation_validity could not be computed"
+    ]
+    assert gate({**good, "abstention_rate": 0.0}, t) == ["abstention_rate 0.000 < 1.0"]
+
+
+def test_nan_ragas_scores_are_ignored_in_means() -> None:
+    ragas: dict[str, dict[str, float | None]] = {
+        "a1": {"faithfulness": 1.0},
+        "a2": {"faithfulness": float("nan")},
+    }
+    items = {"a1": item(id="a1"), "a2": item(id="a2")}
+    out = summarize([sample(id="a1"), sample(id="a2")], items, ragas, load_pricing())
+    assert out["faithfulness"] == 1.0
 
 
 def test_percentile_and_cost() -> None:

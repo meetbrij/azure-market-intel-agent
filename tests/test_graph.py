@@ -142,3 +142,27 @@ async def test_news_outage_degrades_but_run_succeeds(graph_deps: GraphDeps) -> N
     assert final.degraded == ["news"]
     assert requests[0]["degraded"] == ["news"]
     assert final.report is not None
+
+
+async def test_rejections_count_toward_the_loop_cap(graph_deps: GraphDeps) -> None:
+    rejection = {"approved": False, "notes": "No"}
+
+    final, requests = await run(decisions=[rejection] * 5)
+
+    assert len(requests) == MAX_LOOPS  # not one pass per rejection
+    assert [r["final_pass"] for r in requests] == [False, True]
+    assert "write" not in graph_deps.llm.labels()
+    assert final.report is None
+    assert final.error is not None and "final pass" in final.error
+
+
+async def test_rejection_replaces_evidence_with_the_revised_plans(
+    graph_deps: GraphDeps,
+) -> None:
+    other = {**HIT, "id": "googl-annual-report-10k-9", "company": "Alphabet"}
+    graph_deps.search.side_effect = [[HIT, other], [HIT]]
+
+    final, requests = await run(decisions=[{"approved": False, "notes": "AWS only"}])
+
+    assert [r["evidence_counts"]["filings"] for r in requests] == [2, 1]
+    assert [e.reference for e in final.filing_evidence] == [HIT["id"]]

@@ -87,7 +87,8 @@ capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
   plan and what was found before the expensive writing step, and can reject
   with notes to re-plan.
 - **Hard cost cap.** At most two plan passes per job (`MAX_LOOPS`);
-  rejections count toward it.
+  rejections count toward it, and rejecting the last pass ends the job. A
+  decision applies only to the pass it was made for (`expected_pass`).
 - **Durable and resumable.** Postgres checkpoints with `thread_id = job id`,
   plus startup recovery of jobs a dead worker left `running`.
   [ADR 0003](docs/adr/0003-checkpointing.md).
@@ -186,9 +187,10 @@ The job waits at `awaiting_approval` until someone decides:
 curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
   -d '{"approved": false, "notes": "Use the latest fiscal year vs the prior year only."}'
 
-# Approve: write -> critique (one more re-plan and approval if the critic finds gaps)
+# Approve pass 2: write -> critique. (Without the rejection, a critic that finds
+# gaps would re-plan once more; the rejection already used that pass.)
 curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H 'content-type: application/json' \
-  -d '{"approved": true}'
+  -d '{"approved": true, "expected_pass": 2}'
 
 until curl -s localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(completed|failed)"'; do sleep 3; done
 curl -s localhost:8000/api/v1/research/$JOB | python3 -m json.tool

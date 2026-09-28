@@ -2,7 +2,7 @@
 
     START -> plan -> (retrieve_filings || fetch_news) -> compact
           -> approve_gate -(approved)-> write -> critique -> (plan | END)
-                          -(rejected)-> plan
+                          -(rejected)-> plan (END if on the last pass)
 
 uv run python -m app.graph.build "question" [--companies Amazon Alphabet] [--yes]
 
@@ -62,7 +62,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[An
     builder.add_edge(["retrieve_filings", "fetch_news"], "compact")  # waits for both
     builder.add_edge("compact", "approve_gate")
     builder.add_conditional_edges(
-        "approve_gate", route_after_approval, ["write", "plan"]
+        "approve_gate", route_after_approval, ["write", "plan", END]
     )
     builder.add_edge("write", "critique")
     builder.add_conditional_edges("critique", route_after_critique, ["plan", END])

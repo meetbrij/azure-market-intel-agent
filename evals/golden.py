@@ -14,7 +14,8 @@ class GoldenItem(BaseModel):
     question: str
     ground_truth: str
     expected_sources: list[str] = []
-    expected_pages: list[int] = []
+    # One source: a list of pages. Several: {source: [pages]}, each needed.
+    expected_pages: list[int] | dict[str, list[int]] = []
     companies: list[str] = []
     category: Literal["factual", "comparative", "temporal", "unanswerable"]
     answerable: bool
@@ -27,13 +28,25 @@ class GoldenItem(BaseModel):
             )
         if self.answerable and not self.expected_sources:
             raise ValueError(f"{self.id}: answerable questions need expected_sources")
+        if isinstance(self.expected_pages, list) and len(self.expected_sources) > 1:
+            raise ValueError(f"{self.id}: map expected_pages to each expected source")
+        if isinstance(self.expected_pages, dict) and set(self.expected_pages) != set(
+            self.expected_sources
+        ):
+            raise ValueError(f"{self.id}: expected_pages keys must be expected_sources")
         return self
+
+    def pages_by_source(self) -> dict[str, list[int]]:
+        if isinstance(self.expected_pages, dict):
+            return self.expected_pages
+        return {src: self.expected_pages for src in self.expected_sources}
 
 
 class Thresholds(BaseModel):
     smoke_ids: list[str]
     faithfulness: float
     citation_validity: float
+    abstention_rate: float
 
 
 def load_golden(path: Path = EVALS_DIR / "golden_set.yaml") -> list[GoldenItem]:

@@ -31,8 +31,8 @@ falls back to hybrid.
 
 | variant | context precision | context recall | faithfulness | answer relevancy | citation validity | abstention (unanswerable) | false abstention (answerable) | expected page retrieved | retrieval p50 / p95 | end-to-end p95 | cost/query |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| vector | 0.542 | 0.847 | 0.967 | 0.806 | 100% | 100% | 16% | 80% | 539 / 1095 ms | 16.4 s | $0.0017 |
-| hybrid | 0.592 | 0.947 | 0.990 | 0.869 | 100% | 100% | 4% | 88% | 536 / 812 ms | 5.7 s | $0.0015 |
+| vector | 0.542 | 0.847 | 0.967 | 0.806 | 100% | 100% | 16% | 76% | 539 / 1095 ms | 16.4 s | $0.0017 |
+| hybrid | 0.592 | 0.947 | 0.990 | 0.869 | 100% | 100% | 4% | 76% | 536 / 812 ms | 5.7 s | $0.0015 |
 | **hybrid_semantic** | **0.806** | **1.000** | 0.973 | 0.858 | 100% | 100% | **0%** | **100%** | 592 / 1163 ms | 7.2 s | $0.0015 |
 
 - **Where the numbers come from:** full per-question results are in
@@ -43,6 +43,12 @@ falls back to hybrid.
 - **Two measurement caveats:** "expected page retrieved" is page-level, and
   the judge is the same model that writes the answers
   ([KNOWN_LIMITATIONS](KNOWN_LIMITATIONS.md)).
+- **Corrected on Day 14.5:** "expected page retrieved" first counted any
+  expected page from any expected filing, so for a comparison, another
+  company's page (or one company's page alone) counted as a hit. It now needs
+  each company's own answer page. The saved samples were re-scored with no
+  new model or Search calls: vector 80% → 76%, hybrid 88% → 76%,
+  hybrid_semantic 100% unchanged ([D-58](DECISIONS.md)).
 
 **Context recall by category:**
 - vector: factual 0.83, comparative 0.83, temporal 0.90
@@ -111,8 +117,10 @@ re-runs it as hybrid. Hybrid is the second-best variant here (recall 0.95,
 false abstention 4%), so running out of quota degrades gracefully rather than
 back to vector-only quality. Eval results record every fallback
 (`semantic_fallbacks`: 0 in this run), so a quota problem can't
-masquerade as a quality change. The CI smoke gate now runs the production
-mode; thresholds were re-set from four hybrid_semantic measurements
+masquerade as a quality change. The smoke gate (to run in CI from Day 18)
+now tests the production mode. Its thresholds were re-set from four
+hybrid_semantic measurements, and since Day 14.5 it also requires the
+unanswerable smoke question to be declined
 ([`evals/thresholds.yaml`](../evals/thresholds.yaml)).
 
 ## Reproduce

@@ -37,6 +37,14 @@ async def test_post_rejects_empty_query(client: AsyncClient) -> None:
     assert resp.status_code == 422
 
 
+
+async def test_post_bounds_the_companies_filter(client: AsyncClient) -> None:
+    too_many = {"query": "cloud", "companies": [f"C{i}" for i in range(11)]}
+    too_long = {"query": "cloud", "companies": ["x" * 65]}
+    for body in (too_many, too_long):
+        resp = await client.post("/api/v1/research", json=body)
+        assert resp.status_code == 422
+
 async def test_enqueue_failure_marks_job_failed(
     client: AsyncClient, queue: AsyncMock
 ) -> None:
@@ -99,7 +107,11 @@ async def test_resume_enqueues_decision(client: AsyncClient, queue: AsyncMock) -
     assert resp.json() == {"job_id": job_id, "status": "queued"}
     call = queue.enqueue_job.await_args
     assert call.args == ("run_research", job_id)
-    assert call.kwargs["resume"] == {"approved": False, "notes": "Add Microsoft"}
+    assert call.kwargs["resume"] == {
+        "approved": False,
+        "notes": "Add Microsoft",
+        "pass": 1,  # the worker applies it to this pass only
+    }
     assert call.kwargs["_job_id"].startswith(f"{job_id}:resume:")
 
 
@@ -112,6 +124,22 @@ async def test_resume_twice_conflicts(client: AsyncClient) -> None:
         f"/api/v1/research/{job_id}/resume", json={"approved": True}
     )
     assert (first.status_code, second.status_code) == (202, 409)
+
+
+async def test_resume_for_a_stale_pass_conflicts_and_keeps_job_paused(
+    client: AsyncClient, queue: AsyncMock
+) -> None:
+    job_id = await paused_job()  # waiting on pass 1
+
+    stale = await client.post(
+        f"/api/v1/research/{job_id}/resume", json={"approved": True, "expected_pass": 0}
+    )
+    current = await client.post(
+        f"/api/v1/research/{job_id}/resume", json={"approved": True, "expected_pass": 1}
+    )
+
+    assert (stale.status_code, current.status_code) == (409, 202)
+    queue.enqueue_job.assert_awaited_once()
 
 
 async def test_resume_unknown_job_404(client: AsyncClient) -> None:

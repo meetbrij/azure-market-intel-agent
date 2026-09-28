@@ -11,6 +11,8 @@
 #    5 unanswerable genuinely absent from the corpus — verified by searching
 #                   all three filings. The system must decline, not guess.
 #
+# expected_pages: pages the answer is on. A list for one source; for several
+#   sources, a map from each source to its pages (every source must be hit).
 # companies: the filter a user would pick in the UI; the retriever gets it,
 #            as the API does. Empty = search the whole index.
 # Amounts in "$X million" are as tabulated in the filing (in millions).
@@ -127,7 +129,9 @@
   question: "Compare AWS net sales with Google Cloud revenues for 2025."
   ground_truth: "AWS net sales were $128,725 million in 2025; Google Cloud revenues were $58,705 million in 2025. AWS was larger."
   expected_sources: ["amzn_annual_report_10k.pdf", "googl_annual_report_10k.pdf"]
-  expected_pages: [69, 34]
+  expected_pages:
+    amzn_annual_report_10k.pdf: [69]
+    googl_annual_report_10k.pdf: [34]
   companies: [Amazon, Alphabet]
   category: comparative
   answerable: true
@@ -136,7 +140,9 @@
   question: "Compare the 2025 operating income of AWS and Google Cloud."
   ground_truth: "AWS operating income was $45,606 million in 2025; Google Cloud operating income was $13,910 million in 2025."
   expected_sources: ["amzn_annual_report_10k.pdf", "googl_annual_report_10k.pdf"]
-  expected_pages: [27, 37]
+  expected_pages:
+    amzn_annual_report_10k.pdf: [27]
+    googl_annual_report_10k.pdf: [37]
   companies: [Amazon, Alphabet]
   category: comparative
   answerable: true
@@ -145,7 +151,9 @@
   question: "Which grew faster in 2025, AWS sales or Google Cloud revenues?"
   ground_truth: "Google Cloud revenues grew faster: they increased $15.5 billion, or 36%, while AWS sales increased 20% in 2025."
   expected_sources: ["amzn_annual_report_10k.pdf", "googl_annual_report_10k.pdf"]
-  expected_pages: [25, 33]
+  expected_pages:
+    amzn_annual_report_10k.pdf: [25]
+    googl_annual_report_10k.pdf: [33]
   companies: [Amazon, Alphabet]
   category: comparative
   answerable: true
@@ -154,7 +162,9 @@
   question: "Compare Amazon's and Alphabet's capital expenditures in 2025."
   ground_truth: "Amazon's cash capital expenditures were $128.3 billion in 2025; Alphabet's capital expenditures were $91.4 billion in 2025. Both primarily reflect technical/technology infrastructure."
   expected_sources: ["amzn_annual_report_10k.pdf", "googl_annual_report_10k.pdf"]
-  expected_pages: [23, 34]
+  expected_pages:
+    amzn_annual_report_10k.pdf: [23]
+    googl_annual_report_10k.pdf: [34]
   companies: [Amazon, Alphabet]
   category: comparative
   answerable: true
@@ -163,7 +173,9 @@
   question: "Which company had more employees at the end of 2025, Amazon or Alphabet?"
   ground_truth: "Amazon, with approximately 1,576,000 full-time and part-time employees, versus 190,820 at Alphabet (both as of December 31, 2025)."
   expected_sources: ["amzn_annual_report_10k.pdf", "googl_annual_report_10k.pdf"]
-  expected_pages: [4, 8]
+  expected_pages:
+    amzn_annual_report_10k.pdf: [4]
+    googl_annual_report_10k.pdf: [8]
   companies: [Amazon, Alphabet]
   category: comparative
   answerable: true
@@ -172,7 +184,9 @@
   question: "Compare Microsoft's Intelligent Cloud revenue with AWS net sales in their latest fiscal years."
   ground_truth: "Microsoft Intelligent Cloud revenue was $137,791 million in fiscal year 2026 (ended June 30, 2026); AWS net sales were $128,725 million in 2025 (ended December 31, 2025). The fiscal periods differ."
   expected_sources: ["microsoft_annual_report_10k.pdf", "amzn_annual_report_10k.pdf"]
-  expected_pages: [84, 69]
+  expected_pages:
+    microsoft_annual_report_10k.pdf: [84]
+    amzn_annual_report_10k.pdf: [69]
   companies: [Microsoft, Amazon]
   category: comparative
   answerable: true
@@ -181,7 +195,9 @@
   question: "Compare the net income of Microsoft and Amazon in their latest fiscal years."
   ground_truth: "Microsoft's net income was $133,749 million for fiscal year 2026 (ended June 30, 2026); Amazon's net income was $77,670 million for 2025."
   expected_sources: ["microsoft_annual_report_10k.pdf", "amzn_annual_report_10k.pdf"]
-  expected_pages: [50, 37]
+  expected_pages:
+    microsoft_annual_report_10k.pdf: [50]
+    amzn_annual_report_10k.pdf: [37]
   companies: [Microsoft, Amazon]
   category: comparative
   answerable: true
@@ -190,7 +206,9 @@
   question: "Compare Alphabet's and Microsoft's total revenue in their latest fiscal years."
   ground_truth: "Alphabet's revenues were $402.8 billion in 2025; Microsoft's total revenue was $331,839 million in fiscal year 2026 (ended June 30, 2026)."
   expected_sources: ["googl_annual_report_10k.pdf", "microsoft_annual_report_10k.pdf"]
-  expected_pages: [33, 84]
+  expected_pages:
+    googl_annual_report_10k.pdf: [33]
+    microsoft_annual_report_10k.pdf: [84]
   companies: [Alphabet, Microsoft]
   category: comparative
   answerable: true

@@ -29,7 +29,8 @@
         "model": "text-embedding-3-small",
         "input_per_million": 0.02
       }
-    }
+    },
+    "recomputed": "page_hit_rate re-scored per source on Day 14.5 (D-58)"
   },
   "summary": {
     "n": 30,
@@ -43,7 +44,7 @@
     "abstention_rate": 1.0,
     "false_abstention_rate": 0.16,
     "source_hit_rate": 1.0,
-    "page_hit_rate": 0.8,
+    "page_hit_rate": 0.76,
     "retrieval_p50_ms": 490.77591601235326,
     "retrieval_p95_ms": 804.8808330058819,
     "end_to_end_p95_ms": 10173.133958000108,

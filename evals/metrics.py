@@ -11,7 +11,7 @@ from statistics import mean
 from typing import Any
 
 from evals.answer import Sample
-from evals.golden import GoldenItem
+from evals.golden import GoldenItem, Thresholds
 
 RAGAS_METRICS = [
     "context_precision",
@@ -45,9 +45,13 @@ def source_hit(sample: Sample, item: GoldenItem) -> bool:
 
 
 def page_hit(sample: Sample, item: GoldenItem) -> bool:
-    """At least one retrieved chunk comes from a page the answer is on."""
-    wanted = {(src, p) for src in item.expected_sources for p in item.expected_pages}
-    return bool(wanted & set(sample.retrieved_pages))
+    """For every expected source, a retrieved chunk comes from a page of that
+    source the answer is on (a comparison needs both companies' pages)."""
+    retrieved = set(sample.retrieved_pages)
+    return all(
+        any((src, p) in retrieved for p in pages)
+        for src, pages in item.pages_by_source().items()
+    )
 
 
 def cost_usd(sample: Sample, pricing: dict[str, dict[str, Any]]) -> float:
@@ -71,7 +75,9 @@ def summarize(
 
     def ragas_mean(metric: str, group: list[Sample]) -> float | None:
         values = [
-            v for s in group if (v := ragas.get(s.id, {}).get(metric)) is not None
+            v
+            for s in group
+            if (v := ragas.get(s.id, {}).get(metric)) is not None and not math.isnan(v)
         ]
         return mean(values) if values else None
 
@@ -117,3 +123,16 @@ def summarize(
         by_category[category] = row
     out["by_category"] = by_category
     return out
+
+
+def gate(summary: dict[str, Any], thresholds: Thresholds) -> list[str]:
+    """The CI gate's failures (empty = pass). A metric that couldn't be
+    computed fails too: "no score" must never read as "good enough"."""
+    failures = []
+    for metric in ("faithfulness", "citation_validity", "abstention_rate"):
+        value, floor = summary.get(metric), getattr(thresholds, metric)
+        if value is None or math.isnan(value):
+            failures.append(f"{metric} could not be computed")
+        elif value < floor:
+            failures.append(f"{metric} {value:.3f} < {floor}")
+    return failures

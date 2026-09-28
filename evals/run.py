@@ -29,7 +29,7 @@ from app.graph.retrieval import Mode, search_many
 from app.logging_setup import configure_logging
 from evals.answer import Sample, answer_item
 from evals.golden import EVALS_DIR, load_golden, load_pricing, load_thresholds
-from evals.metrics import RAGAS_METRICS, summarize
+from evals.metrics import RAGAS_METRICS, gate, summarize
 
 ROOT = EVALS_DIR.parent
 VARIANTS = ["vector", "hybrid", "hybrid_semantic"]
@@ -90,6 +90,7 @@ def score_with_ragas(
             [
                 "uv",
                 "run",
+                "--frozen",  # never re-resolve (or rewrite) the RAGAS lockfile
                 "--project",
                 str(EVALS_DIR / "ragas"),
                 "python",
@@ -293,15 +294,7 @@ def main() -> int:
 
     if not args.smoke:
         return 0
-    failures = []
-    if (summary["faithfulness"] or 0) < thresholds.faithfulness:
-        failures.append(
-            f"faithfulness {fmt(summary['faithfulness'])} < {thresholds.faithfulness}"
-        )
-    if (summary["citation_validity"] or 0) < thresholds.citation_validity:
-        failures.append(
-            f"citation validity {fmt(summary['citation_validity'])} < {thresholds.citation_validity}"
-        )
+    failures = gate(summary, thresholds)
     if failures:
         print("EVAL GATE FAILED: " + "; ".join(failures), file=sys.stderr)
         return 1

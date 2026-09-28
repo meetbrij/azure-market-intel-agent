@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 14. Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 14, plus the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -66,6 +66,16 @@ day's definition of done.
 | D-47 | 14 | Retrieval | Ship hybrid + semantic ranker as the default |
 | D-48 | 14 | Resilience | Semantic ranker unavailable → fall back to hybrid, recorded per hit |
 | D-49 | 14 | Evaluation | The smoke gate follows the production retrieval mode |
+| D-50 | 14.5 | Human loop | A resume decision is bound to the pass it was made for |
+| D-51 | 14.5 | Human loop | Rejections are capped too: rejecting the last pass ends the run |
+| D-52 | 14.5 | Human loop | A rejection discards the rejected plan's evidence |
+| D-53 | 14.5 | Grounding | A citation's quote must appear in its source |
+| D-54 | 14.5 | Security | Decode before stripping; everything from the web goes inside the fence |
+| D-55 | 14.5 | Resilience | `plan` survives a Search outage |
+| D-56 | 14.5 | Durability | arq `job_timeout` raised to 30 minutes |
+| D-57 | 14.5 | Evaluation | The gate fails on a missing score and on an answered unanswerable |
+| D-58 | 14.5 | Evaluation | Page hit is per source; stored results recomputed |
+| D-59 | 14.5 | Platform | Data ports on localhost only; bounded `companies` filter |
 
 Bugs found in live testing, and what each one changed: [F-01 to F-16](#found-in-live-testing).
 
@@ -356,7 +366,9 @@ hybrid and semantic ranking.
   - `APPROVAL_REQUIRED=false` auto-approves.
 - **Why:** The gate sits at the cheapest point where there's real evidence to
   judge (ADR 0002). The cost cap applies even with a human in the loop.
-- **Status:** Active. You accepted approval on every pass "for now".
+- **Status:** Active. You accepted approval on every pass "for now". The
+  code review found that the rejection route didn't actually check the cap;
+  D-51 enforces it.
 
 ### D-28 · Resume is compare-and-set; enqueue failure keeps the job paused · Day 9–10
 - **Decision:**
@@ -388,7 +400,8 @@ hybrid and semantic ranking.
   never sent to the fallback, since it would fail on any model. Each call logs
   which deployment served it.
 - **Status:** Active; verified by tests only, since there's no second
-  deployment.
+  deployment. In practice only the 429 path can fire: see the limitations
+  (timeout fallback).
 
 ### D-31 · Evidence failures degrade; reasoning failures fail · Day 11
 - **Decision:** If Search or news is unavailable, the source is marked in
@@ -439,7 +452,8 @@ hybrid and semantic ranking.
   - The graph's client sanitises again.
   - Prompts fence news text in `<untrusted_web_content>`.
   - The stdio server receives only the environment variables Key Vault needs.
-- **Status:** Active. Day 15 adds a classifier screen.
+- **Status:** Active. D-54 closed an encoded-entity bypass of the fence. Day
+  15 adds a classifier screen.
 
 ### D-38 · Disarm Markdown from untrusted sources · Day 12
 - **Context:** A news snippet starting with `#` rendered as a heading in the
@@ -488,7 +502,7 @@ hybrid and semantic ranking.
     tables.
   - Postgres and Redis publish ports, so `uv run` workflows on the host work
     against the same containers.
-- **Status:** Active.
+- **Status:** Active. Since D-59 the ports bind to `127.0.0.1` only.
 
 ### D-23 · One MCP session per worker, held in its own task · Day 8
 - **Decision:** The session opens at worker startup and stays open. It's owned
@@ -591,6 +605,139 @@ hybrid and semantic ranking.
   was hard-coded to `vector`.
 - **Why:** A gate that tests a mode production doesn't use gives false
   confidence.
+- **Status:** Active.
+
+---
+
+## Review fixes (Day 14.5)
+
+A read-only review of the whole codebase before Day 15 (three reviewers:
+graph and news; API, jobs, UI and Docker; ingestion and evals). Nothing was
+critical. These entries are the fixes; the findings we accepted instead are
+in the limitations.
+
+### D-50 · A resume decision is bound to the pass it was made for · Day 14.5
+- **Context:** The worker applied any `resume` payload to whatever interrupt
+  was waiting. After a crash, arq retries a killed resume task once its lock
+  expires. By then crash recovery may have finished that pass, and the job
+  may be paused at pass 2, which the old task would approve without anyone
+  having seen it. A browser tab left open on pass 1 could do the same.
+- **Decision:**
+  - `POST /resume` reads the waiting pass *after* claiming the job and puts
+    it in the task payload.
+  - The worker applies a decision only if the job row is `queued` and the
+    payload's pass is the one the graph is waiting on. Otherwise it logs the
+    task as stale and drops it.
+  - Optional `expected_pass` in the request (additive); a mismatch gets 409.
+    The UI always sends it.
+- **Why:** An approval is only meaningful for the plan the reviewer saw. Day
+  15 makes approvals attributable to a person, so this must hold first.
+- **Status:** Active.
+
+### D-51 · Rejections are capped too: rejecting the last pass ends the run · Day 14.5
+- **Context:** D-27 said rejections count toward `MAX_LOOPS`, but only the
+  critic's route checked the cap. Ten rejections meant ten full passes.
+- **Decision:**
+  - A rejection on the last pass routes to END.
+  - If an earlier pass produced a report, it stands, as it does when the
+    critic hits the cap. Otherwise the job fails with "plan rejected on the
+    final pass".
+  - The approval request carries `final_pass`, and the UI tells the reviewer
+    that rejecting now ends the job.
+- **Status:** Active.
+
+### D-52 · A rejection discards the rejected plan's evidence · Day 14.5
+- **Context:** Evidence accumulated across passes. After "Only AWS, please",
+  the other companies' chunks from the rejected pass still reached the
+  writer, and the reviewer's evidence counts included them.
+- **Decision:**
+  - On a rejection, `plan` resets the filing and news evidence. A critic loop
+    still keeps and extends its evidence, as before.
+  - The reviewer may narrow the request's company filter ("Amazon only"),
+    never widen it. Before this, the request filter always won, so pass 2
+    of a live run still covered both companies.
+- **Verified live:** a two-company job rejected with "Amazon only" re-planned
+  with Amazon alone, showed 4 filings instead of the 19 from pass 1, and
+  cited only Amazon.
+- **Trade-off:** `degraded` isn't reset. It has a merge reducer, and a reset
+  would need a special marker. See the limitations.
+- **Status:** Active.
+
+### D-53 · A citation's quote must appear in its source · Day 14.5
+- **Context:** Company, page and period came from the evidence, but the
+  quote text came straight from the model, and no check compared it with the
+  source. A misquoted figure could be archived next to a real page.
+- **Decision:**
+  - `hydrate` drops a citation whose quote isn't in its evidence snippet, as
+    it already does for unknown references.
+  - Matching ignores case, punctuation and whitespace, but not words, and an
+    ellipsis may skip text.
+  - The critic's existing check then flags any section left without
+    citations.
+- **Status:** Active.
+
+### D-54 · Decode before stripping; everything from the web goes inside the fence · Day 14.5
+- **Context:** `clean_text` stripped tags *before* decoding entities. So an
+  encoded `&lt;/untrusted_web_content&gt;` came back as a live closing tag,
+  which let web text escape the fence. News titles were also outside the
+  fence.
+- **Decision:**
+  - Decode entities, then strip tags, repeating until the text stops
+    changing.
+  - In prompts, a news item's reference, date, title and snippet are all
+    inside the fence, with `<` and `>` replaced by look-alikes, so nothing
+    can close it.
+- **Status:** Active; tested with plain, double-encoded and numeric-entity
+  payloads.
+
+### D-55 · `plan` survives a Search outage · Day 14.5
+- **Context:** `plan` lists the indexed companies with a Search query. If
+  Search was down, the job failed, contrary to D-31.
+- **Decision:** If the listing fails, `plan` logs it and uses the request's
+  own company filter. If Search really is down, `retrieve_filings` then
+  records the gap.
+- **Status:** Active.
+
+### D-56 · arq `job_timeout` raised to 30 minutes · Day 14.5
+- **Context:** One arq task can run a whole segment: plan through critique,
+  then plan to compact again. Each LLM node may take up to 300 s. At 600 s,
+  a slow but healthy run was cancelled, left `running`, and not retried
+  until the worker restarted.
+- **Decision:** `job_timeout = 1800`. LangGraph's node timeouts remain the
+  real bound.
+- **Status:** Active.
+
+### D-57 · The gate fails on a missing score and on an answered unanswerable · Day 14.5
+- **Context:**
+  - RAGAS returns NaN when it can't score an answer, and NaN compares as
+    "not below the threshold", so the faithfulness gate passed.
+  - The smoke set includes an unanswerable question (q029), but the gate
+    never checked abstention.
+- **Decision:**
+  - NaN becomes "no score" with an error recorded.
+  - The gate (`evals.metrics.gate`, now unit-tested) fails when a metric
+    has no score.
+  - New gated metric: `abstention_rate: 1.0`.
+- **Status:** Active.
+
+### D-58 · Page hit is per source; stored results recomputed · Day 14.5
+- **Context:** Page hit crossed every expected source with every expected
+  page, so for comparisons another company's page counted as a hit. One
+  company's page alone was also enough.
+- **Decision:**
+  - A comparison's `expected_pages` maps each source to its own pages.
+  - A hit needs a page from every source.
+  - The stored results were re-scored from their saved samples: hybrid 88%
+    → 76%, vector 80% → 76%, hybrid_semantic unchanged at 100%.
+- **Why:** A published number must mean what it says. The shipping decision
+  (D-47) doesn't change; the corrected metric widens hybrid_semantic's lead.
+- **Status:** Active.
+
+### D-59 · Data ports on localhost only; bounded `companies` filter · Day 14.5
+- **Decision:**
+  - Compose binds Postgres and Redis to `127.0.0.1`, not every interface.
+    Postgres has demo credentials.
+  - `companies` accepts at most 10 names of at most 64 characters each.
 - **Status:** Active.
 
 ---

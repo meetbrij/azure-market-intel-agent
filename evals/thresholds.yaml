@@ -17,3 +17,7 @@ faithfulness: 0.90
 # id costs 12-14 points. 0.80 tolerates one slip (normal variance, seen on
 # Day 13) and fails on two. "10% below 1.00" (0.90) would trip on one.
 citation_validity: 0.80
+# abstention_rate: the smoke set's unanswerable question (q029) must be
+# declined. Measured 1.00 in every run, every variant; one wrong answer to an
+# unanswerable question is exactly the failure this project exists to prevent.
+abstention_rate: 1.0

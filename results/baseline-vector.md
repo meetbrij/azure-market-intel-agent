@@ -14,7 +14,7 @@
 | abstention (unanswerable) | 100.0% |
 | false abstention (answerable) | 16.0% |
 | expected filing retrieved | 100.0% |
-| expected page retrieved (page-level; a page spans chunks) | 80.0% |
+| expected page retrieved (page-level; a page spans chunks) | 76.0% |
 | retrieval p50 / p95 (ms) | 490.776 / 804.881 |
 | end-to-end p95 (ms) | 10173.134 |
 | semantic ranker fallbacks | — |

@@ -63,7 +63,10 @@ Rules:
 Quote the stated figures and say the calculation is not given in the sources.
 - Every section must carry at least one citation.
 - A citation is a reference id copied exactly from an evidence block header, \
-plus a short quote (at most 25 words) copied verbatim from that same block.
+plus a short quote (at most 25 words) copied verbatim from that same block. \
+Quotes are checked word for word against the block and dropped if they don't \
+match: never add, reorder or merge words (e.g. a table's segment heading onto \
+one of its rows); mark skipped text with "...".
 - Cite news evidence where it adds recent context; filings remain the source \
 for reported financials.
 - If the evidence does not answer part of the question, say so explicitly \
@@ -94,17 +97,27 @@ Be strict but concise.
 """
 
 
+def _defuse(text: str) -> str:
+    return text.replace("<", "‹").replace(">", "›")
+
+
 def format_evidence(evidence: list[Evidence]) -> str:
     if not evidence:
         return "(no evidence)"
     blocks = []
     for e in evidence:
-        header = f"[{e.reference}] ({e.source_type}) {e.title}"
-        if e.period:
-            header += f" | period {e.period}"
-        body = e.snippet
         if e.source_type == "news":
-            body = f"{UNTRUSTED_OPEN}\n{body}\n{UNTRUSTED_CLOSE}"
+            # Everything the web supplied goes inside the fence, with angle
+            # brackets defused so no text can close (or reopen) it.
+            header = f"[{_defuse(e.reference)}] (news)"
+            if e.period:
+                header += f" | published {_defuse(e.period)}"
+            body = f"{UNTRUSTED_OPEN}\n{_defuse(e.title)}\n{_defuse(e.snippet)}\n{UNTRUSTED_CLOSE}"
+        else:
+            header = f"[{e.reference}] ({e.source_type}) {e.title}"
+            if e.period:
+                header += f" | period {e.period}"
+            body = e.snippet
         blocks.append(f"{header}\n{body}")
     return "\n\n".join(blocks)
 

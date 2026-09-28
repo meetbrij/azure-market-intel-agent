@@ -75,9 +75,15 @@ class ApiClient:
         return result
 
     def resume(
-        self, job_id: str, approved: bool, notes: str | None = None
+        self,
+        job_id: str,
+        approved: bool,
+        notes: str | None = None,
+        expected_pass: int | None = None,
     ) -> dict[str, Any]:
-        body = {"approved": approved, "notes": notes}
+        body: dict[str, Any] = {"approved": approved, "notes": notes}
+        if expected_pass is not None:
+            body["expected_pass"] = expected_pass
         result: dict[str, Any] = self._request(
             "POST", f"/api/v1/research/{job_id}/resume", json=body
         ).json()

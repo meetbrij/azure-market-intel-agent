@@ -18,6 +18,7 @@ gpt-5-mini; RAGAS maps reasoning-model parameters by name).
 import argparse
 import asyncio
 import json
+import math
 import os
 import sys
 import warnings
@@ -117,7 +118,14 @@ async def score_one(
     for name, metric in metrics.items():
         try:
             result = await metric.ascore(**args[name])
-            scores[name] = None if result.value is None else float(result.value)
+            value = None if result.value is None else float(result.value)
+            if value is not None and math.isnan(value):
+                # RAGAS returns NaN when it can't score (e.g. faithfulness of
+                # an answer with no statements). NaN is not a score: it would
+                # poison the mean and slip past threshold comparisons.
+                value = None
+                errors[f"{row['id']}:{name}"] = "NaN: metric could not be computed"
+            scores[name] = value
         except Exception as e:  # noqa: BLE001 — one bad sample must not sink the run
             scores[name] = None
             errors[f"{row['id']}:{name}"] = f"{type(e).__name__}: {str(e)[:300]}"

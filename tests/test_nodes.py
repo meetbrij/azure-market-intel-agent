@@ -1,6 +1,7 @@
 """One test group per node, with the LLM, Search and news tool mocked."""
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from langgraph.graph import END
@@ -79,6 +80,59 @@ async def test_plan_follow_up_pass_receives_critique_gaps(
     assert "PREVIOUS CRITIQUE" in user
     assert "Amazon AWS operating margin" in user
 
+
+
+async def test_plan_survives_search_outage_with_request_filter(
+    graph_deps: GraphDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.graph.nodes.list_companies", AsyncMock(side_effect=OSError("down"))
+    )
+
+    update = await nodes.plan(state(companies=["Amazon"]))
+
+    assert update["plan"].companies == ["Amazon"]  # degrade, don't fail
+
+
+async def test_plan_after_rejection_discards_previous_evidence(
+    graph_deps: GraphDeps,
+) -> None:
+    rejected = {"approved": False, "mode": "human", "notes": "Only AWS"}
+
+    update = await nodes.plan(
+        state(plan=DEFAULT_PLAN, approval=rejected, loop_count=1, filing_evidence=[FILING])
+    )
+
+    assert update["filing_evidence"] == [] and update["news_evidence"] == []
+
+
+
+async def test_rejection_may_narrow_but_not_widen_the_request_filter(
+    graph_deps: GraphDeps,
+) -> None:
+    rejected = {"approved": False, "mode": "human", "notes": "Amazon only"}
+    previous = state(
+        plan=DEFAULT_PLAN, approval=rejected, loop_count=1, companies=["Amazon", "Alphabet"]
+    )
+    for proposed, expected in [
+        (["Amazon"], ["Amazon"]),  # narrowed as the reviewer asked
+        (["Amazon", "Microsoft"], ["Amazon"]),  # Microsoft was never requested
+        (["Microsoft"], ["Amazon", "Alphabet"]),  # nothing requested: keep the filter
+    ]:
+        graph_deps.llm.responses["plan"] = DEFAULT_PLAN.model_copy(
+            update={"companies": proposed}
+        )
+        update = await nodes.plan(previous)
+        assert update["plan"].companies == expected
+
+async def test_plan_after_critique_keeps_evidence(graph_deps: GraphDeps) -> None:
+    gaps = Critique(is_complete=False, missing=["x"])
+
+    update = await nodes.plan(
+        state(plan=DEFAULT_PLAN, critique=gaps, loop_count=1, filing_evidence=[FILING])
+    )
+
+    assert "filing_evidence" not in update
 
 # ---------- retrieve_filings ----------
 
@@ -222,7 +276,10 @@ async def test_write_fills_citation_metadata_and_drops_unknown_refs(
     graph_deps: GraphDeps,
 ) -> None:
     news = Evidence(
-        source_type="news", title="AWS news", snippet="...", reference=NEWS_URL
+        source_type="news",
+        title="AWS news",
+        snippet="Reported: operating income was $68.6 billion and $80.0 billion.",
+        reference=NEWS_URL,
     )
     graph_deps.llm.responses["write"] = make_draft(
         str(HIT["id"]), NEWS_URL, "made-up-ref"
@@ -259,6 +316,30 @@ async def test_write_tells_model_about_degraded_sources(
         state(plan=DEFAULT_PLAN, filing_evidence=[FILING], degraded=["news"])
     )
     assert "UNAVAILABLE SOURCES: news" in graph_deps.llm.calls[-1][1]
+
+
+
+async def test_write_drops_citations_whose_quote_is_not_in_the_source(
+    graph_deps: GraphDeps,
+) -> None:
+    draft = make_draft(str(HIT["id"]), str(HIT["id"]))
+    draft.sections[0].citations[1].quote = "Operating income was $90.0 billion"
+    graph_deps.llm.responses["write"] = draft
+
+    update = await nodes.write(state(plan=DEFAULT_PLAN, filing_evidence=[FILING]))
+
+    [kept] = update["report"].sections[0].citations
+    assert "$68.6 billion" in kept.quote
+
+
+def test_quote_matching_folds_formatting_but_not_words() -> None:
+    snippet = "Operating income was $68.6 billion and $80.0 billion for 2024 and 2025."
+    assert nodes.quote_in_snippet("operating income was $68.6 BILLION", snippet)
+    assert nodes.quote_in_snippet("“Operating income was … $80.0 billion”", snippet)
+    assert not nodes.quote_in_snippet("Operating income was $80.0 billion", snippet)
+    assert not nodes.quote_in_snippet("income was $68.6 million", snippet)
+    assert not nodes.quote_in_snippet("$80.0 billion ... Operating income", snippet)
+    assert not nodes.quote_in_snippet("come was", snippet)  # whole words only
 
 
 # ---------- critique ----------
@@ -327,6 +408,13 @@ def test_route_stops_at_loop_cap() -> None:
 def test_route_stops_when_complete() -> None:
     done = Critique(is_complete=True)
     assert nodes.route_after_critique(state(critique=done, loop_count=1)) == END
+
+
+def test_rejection_replans_under_cap_and_ends_at_cap() -> None:
+    no = {"approved": False, "mode": "human", "notes": None}
+    assert nodes.route_after_approval(state(approval=no, loop_count=1)) == "plan"
+    s = state(approval=no, loop_count=nodes.MAX_LOOPS)
+    assert nodes.route_after_approval(s) == END
 
 
 def test_plan_model_rejects_missing_fields() -> None:

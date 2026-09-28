@@ -1,7 +1,7 @@
 """Request/response models for the research API."""
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -11,8 +11,9 @@ from app.jobs.models import Job, JobStatus
 
 class ResearchRequest(BaseModel):
     query: str = Field(min_length=3, max_length=1000)
-    companies: list[str] = Field(
+    companies: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
         default=[],
+        max_length=10,
         description="Optional filter: Amazon, Alphabet, Microsoft",
         examples=[["Amazon", "Alphabet"]],
     )
@@ -29,6 +30,11 @@ class ResumeRequest(BaseModel):
         default=None,
         max_length=2000,
         description="Guidance for the planner; with approved=false the plan is revised",
+    )
+    expected_pass: int | None = Field(
+        default=None,
+        description="The pass being decided (interrupt.pass); 409 if the job has "
+        "since moved on, so a stale page can't approve a plan nobody saw",
     )
 
 

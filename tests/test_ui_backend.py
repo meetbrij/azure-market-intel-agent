@@ -32,6 +32,7 @@ from tests.conftest import (
     GraphDeps,
     make_citation,
     make_report,
+    resume_job,
 )
 
 NEWS = make_citation(
@@ -313,7 +314,7 @@ async def test_worker_archives_approval_and_report(
 ) -> None:
     job = await store.create_job("Amazon operating income", ["Amazon"])
     await run_research(worker_ctx, job.id)
-    await run_research(worker_ctx, job.id, resume={"approved": True, "notes": "ok"})
+    await resume_job(worker_ctx, job.id, notes="ok")
 
     done = await store.get_job(job.id)
     assert done is not None and done.status == JobStatus.COMPLETED
@@ -338,7 +339,7 @@ async def test_archive_failure_does_not_lose_the_report(
     )
     job = await store.create_job("q", ["Amazon"])
     await run_research(worker_ctx, job.id)
-    await run_research(worker_ctx, job.id, resume={"approved": True})
+    await resume_job(worker_ctx, job.id)
 
     done = await store.get_job(job.id)
     assert done is not None and done.status == JobStatus.COMPLETED

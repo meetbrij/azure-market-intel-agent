@@ -147,7 +147,7 @@ def make_draft(*references: str) -> DraftReport:
                 body="Up in 2025.",
                 citations=[
                     DraftCitation(
-                        reference=r, quote="Operating income was $80.0 billion"
+                        reference=r, quote="Operating income was $68.6 billion and $80.0 billion"
                     )
                     for r in references
                 ],
@@ -212,6 +212,23 @@ def graph_deps(monkeypatch: pytest.MonkeyPatch) -> Iterator[GraphDeps]:
     set_news_tool(None)
     yield GraphDeps(llm=llm, search=search)
     set_news_tool(None)
+
+
+async def resume_job(
+    worker_ctx: dict[str, Any], job_id: str, approved: bool = True, notes: str | None = None
+) -> None:
+    """What POST /resume plus the worker do: claim the paused job, then run
+    the decision for the pass it is waiting on."""
+    from app.jobs.models import JobStatus
+    from app.jobs.worker import run_research
+
+    job = await store.get_job(job_id)
+    assert job is not None and job.interrupt is not None
+    assert await store.transition(
+        job_id, from_status=JobStatus.AWAITING_APPROVAL, to_status=JobStatus.QUEUED
+    )
+    decision = {"approved": approved, "notes": notes, "pass": job.interrupt["pass"]}
+    await run_research(worker_ctx, job_id, resume=decision)
 
 
 @pytest.fixture
