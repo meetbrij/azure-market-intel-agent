@@ -3,11 +3,12 @@
     API_BASE_URL=http://localhost:8000 uv run --group ui streamlit run ui/app.py
 
 Talks to the system only through api_client.ApiClient (HTTP). Users sign in
-with Entra ID (device code, ui/auth.py); what they may do comes from the app
+with Entra ID (auth code + PKCE, ui/auth.py); what they may do comes from the app
 roles in their token, which the API enforces. The UI only hides what the API
 would refuse anyway.
 """
 
+import html
 import os
 import re
 from datetime import UTC, datetime
@@ -108,25 +109,25 @@ def open_job(job_id: str) -> None:
 
 def sign_in_screen() -> None:
     st.title("📑 Market Intelligence Agent")
-    st.write("Sign in with your organisation account to continue.")
-    if not st.button("Sign in with Microsoft", type="primary"):
-        return
-    app = st.session_state.msal
-    try:
-        flow = auth.start_device_flow(app)
-    except RuntimeError as e:
-        st.error(f"Could not start sign-in: {e}")
-        return
-    st.info(
-        f"Open **{flow['verification_uri']}** in your browser and enter the code "
-        f"**`{flow['user_code']}`**."
-    )
-    with st.spinner("Waiting for you to finish signing in…"):
-        error = auth.finish_device_flow(app, flow)
-    if error:
+    params = st.query_params.to_dict()
+    if "code" in params or "error" in params:  # back from Microsoft
+        error = auth.finish_sign_in(st.session_state.msal, params)
+        st.query_params.clear()  # the code is single-use; drop it from the URL
+        if error is None:
+            st.rerun()
         st.error(f"Sign-in failed: {error}")
-    else:
-        st.rerun()
+    st.write("Sign in with your organisation account to continue.")
+    if "sign_in_url" not in st.session_state:
+        st.session_state.sign_in_url = auth.begin_sign_in(st.session_state.msal)
+    # Same tab, so Microsoft redirects back into this app. The URL is built
+    # by MSAL for our own registration (not user content), hence the HTML.
+    url = html.escape(st.session_state.sign_in_url, quote=True)
+    st.markdown(
+        f'<a href="{url}" target="_self" style="display:inline-block;'
+        "padding:0.5rem 1rem;border-radius:0.5rem;background:#2f6fde;"
+        'color:white;text-decoration:none;font-weight:600">Sign in with Microsoft</a>',
+        unsafe_allow_html=True,
+    )
 
 
 api()  # creates this session's client (and MSAL app)

@@ -1,11 +1,12 @@
-"""Print an access token for the research API (device code sign-in), for curl.
+"""Print an access token for the research API, for curl.
 
     export TOKEN=$(uv run --group ui python scripts/get_token.py)
     curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/v1/me
 
-Uses the UI's public client registration (AUTH_TENANT_ID, AUTH_UI_CLIENT_ID,
-AUTH_API_CLIENT_ID from .env). The sign-in prompt goes to stderr, the token
-to stdout. Nothing is cached on disk.
+Opens your browser to sign in (auth code + PKCE, redirected back to a
+one-off http://localhost port), using the UI's public client registration
+(AUTH_TENANT_ID, AUTH_UI_CLIENT_ID, AUTH_API_CLIENT_ID from .env). The token
+goes to stdout. Nothing is cached on disk.
 """
 
 import sys
@@ -28,15 +29,15 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    app = auth.new_app()
-    flow = auth.start_device_flow(app)
-    print(flow["message"], file=sys.stderr)
-    error = auth.finish_device_flow(app, flow)
-    token = auth.silent_token(app)
-    if error or token is None:
+    print("Opening your browser to sign in...", file=sys.stderr)
+    result = auth.new_app().acquire_token_interactive(
+        auth.scopes(), prompt="select_account"
+    )
+    if "access_token" not in result:
+        error = result.get("error_description") or result.get("error")
         print(f"Sign-in failed: {error}", file=sys.stderr)
         return 1
-    print(token)
+    print(result["access_token"])
     return 0
 
 

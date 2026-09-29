@@ -183,7 +183,8 @@ docker compose ps          # api, worker, ui, postgres, redis
 ### Demo: submit, approve, get the report
 
 Two people: an analyst submits, a different approver decides. Get a token for
-each (device code sign-in; run the second one signed in as the approver):
+each (a browser window opens to sign in; sign in as the approver the second
+time):
 
 ```bash
 export ANALYST=$(uv run --group ui python scripts/get_token.py)
@@ -358,10 +359,11 @@ to the system **only over HTTP** (`ui/api_client.py`). It runs in its own
 image containing just Streamlit, httpx and MSAL, so it can't import the graph
 or reach Postgres.
 
-**Sign-in:** click *Sign in with Microsoft*, open the URL shown and enter the
-code (device code flow, `ui/auth.py`). The sidebar shows who you are and your
-app roles, as the API sees them (`GET /api/v1/me`). Tokens live only in your
-browser session and are refreshed silently.
+**Sign-in:** click *Sign in with Microsoft*. You sign in at Microsoft and
+are sent back to the app (auth code flow with PKCE, `ui/auth.py`; no client
+secret). The sidebar shows who you are and your app roles, as the API sees
+them (`GET /api/v1/me`). Tokens live only in your browser session and are
+refreshed silently; reloading the page means signing in again.
 
 | Screen | Who | What |
 |---|---|---|

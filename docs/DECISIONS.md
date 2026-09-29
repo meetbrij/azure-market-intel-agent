@@ -80,12 +80,12 @@ day's definition of done.
 | D-61 | 15 | Security | Two app roles; analysts see only their own jobs |
 | D-62 | 15 | Human loop | Separation of duties: nobody approves their own job |
 | D-63 | 15 | Security | Dev bypass is local-only, enforced at startup |
-| D-64 | 15 | Security | App registrations by script: no secrets, assignment required, device code UI |
+| D-64 | 15 | Security | App registrations by script: no secrets, assignment required, auth code + PKCE UI |
 | D-65 | 15 | Governance | Append-only `audit_events`; a person's action needs its audit record |
 | D-66 | 15 | Security | News is screened for injection before any prompt; fails closed |
 | D-67 | 15 | UI | The UI shows identity and roles from the API and hides what it would refuse |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-17](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-18](#found-in-live-testing).
 
 ---
 
@@ -809,7 +809,7 @@ in the limitations.
   refuses to start.
 - **Status:** Active.
 
-### D-64 · App registrations by script: no secrets, assignment required, device code UI · Day 15
+### D-64 · App registrations by script: no secrets, assignment required, auth code + PKCE UI · Day 15
 - **Decision:** `infra/entra/setup.sh` creates two registrations and is safe
   to re-run (the scope and role ids are fixed):
   - **`mia-api`:**
@@ -818,13 +818,20 @@ in the limitations.
     - issues v2 tokens;
     - sets `appRoleAssignmentRequired`, so users without a role can't even
       get a token.
-  - **`mia-ui`:** a public client for device code, with tenant-wide admin
-    consent to that scope.
+  - **`mia-ui`:** a public client with localhost redirect URIs and
+    tenant-wide admin consent to that scope.
   - **No client secrets anywhere:** the API only validates tokens, and the
     UI is a public client.
-- **Why device code:** Streamlit can't easily host a redirect-based sign-in.
-  Device code needs no redirect URI and works the same in a container. MSAL's
-  token cache lives in the browser session only.
+- **Sign-in flow:** auth code with PKCE. The first build used device code,
+  which needs no redirect, but Entra security defaults block it
+  (AADSTS530035, F-18). Turning security defaults off to allow it was
+  rejected: that would drop tenant-wide MFA for a Global Administrator
+  account, just to suit a demo client.
+- **How the redirect works in Streamlit:** it lands in a new Streamlit
+  session. So the pending flow (state, PKCE verifier) is held in the UI
+  process, keyed by `state`, for 10 minutes and used once. `get_token.py`
+  uses MSAL's interactive browser sign-in on a loopback port.
+- **Token cache:** MSAL's cache lives only in the browser session.
 - **Status:** Active. Assigned: analyst to the Gmail account, approver to
   `approver@…onmicrosoft.com`.
 
@@ -898,6 +905,7 @@ one led to.
 | F-15 | 13 | Token waits inflated retrieval latency; the page-hit metric overstated hits | D-43; metric relabelled |
 | F-16 | 14 | The fallback metric counted a plain-hybrid run as 30 "semantic fallbacks" | Count fallbacks only for `hybrid_semantic` runs (D-48); stored results recomputed |
 | F-17 | 15 | Azure Prompt Shields refused the whole screening batch (400 `content_filter`) because one item was a jailbreak, which would have dropped all news. Before Day 15, such a snippet reaching `compact` or `write` would have failed the job. | Treat the refusal as a flag: screen item by item (D-66, ADR 0004) |
+| F-18 | 15 | Device code sign-in was refused with AADSTS530035: the tenant's security defaults block that flow | D-64: auth code + PKCE with localhost redirects; security defaults stay on |
 
 ---
 

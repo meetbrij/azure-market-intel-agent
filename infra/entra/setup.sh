@@ -8,8 +8,9 @@
 #            - Expose an API: api://<appId>, delegated scope access_as_user
 #            - App roles: analyst, approver (assigned to users)
 #            - v2 access tokens; only assigned users can get a token
-#   mia-ui   public client (device code flow) with admin consent for
-#            mia-api/access_as_user
+#   mia-ui   public client (auth code flow + PKCE, localhost redirects) with
+#            admin consent for mia-api/access_as_user. (Not device code:
+#            Entra security defaults block it.)
 #   Role assignments: <analyst-object-id> -> analyst,
 #                     <approver-object-id> -> approver
 #
@@ -20,6 +21,8 @@ set -euo pipefail
 
 API_NAME="${API_NAME:-mia-api}"
 UI_NAME="${UI_NAME:-mia-ui}"
+# Streamlit's address, plus bare localhost (any port) for scripts/get_token.py.
+UI_REDIRECTS="${UI_REDIRECTS:-http://localhost:8501 http://localhost}"
 # Fixed ids, so re-running updates the same scope and roles instead of adding.
 SCOPE_ID="da870bca-c69c-49e4-a7dc-b95a7d1d058d"
 ANALYST_ROLE_ID="d83ca84c-21b3-40b6-a0c8-8dd492819c36"
@@ -106,7 +109,9 @@ if [[ -z "$UI_APP_ID" ]]; then
     --query appId -o tsv)"
   echo "created app $UI_NAME ($UI_APP_ID)"
 fi
-az ad app update --id "$UI_APP_ID" --is-fallback-public-client true
+# shellcheck disable=SC2086  # one URI per word
+az ad app update --id "$UI_APP_ID" --is-fallback-public-client true \
+  --public-client-redirect-uris $UI_REDIRECTS
 cat > "$TMP/ui-access.json" <<JSON
 [{"resourceAppId": "$API_APP_ID",
   "resourceAccess": [{"id": "$SCOPE_ID", "type": "Scope"}]}]
@@ -126,7 +131,7 @@ JSON
   az rest --method POST --uri "$GRAPH/oauth2PermissionGrants" \
     --headers Content-Type=application/json --body "@$TMP/grant.json" >/dev/null
 fi
-echo "configured $UI_NAME: public client, admin consent for access_as_user"
+echo "configured $UI_NAME: public client ($UI_REDIRECTS), admin consent for access_as_user"
 
 # ---------- role assignments ----------
 assign() {  # <user object id> <role id> <label>

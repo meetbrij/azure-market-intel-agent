@@ -187,6 +187,8 @@ on every call. Show the signed-in user and their role.
 >   approvers.
 > - **Dev bypass:** takes the identity from `X-Dev-User` / `X-Dev-Roles`
 >   headers.
+> - **Sign-in flow:** auth code + PKCE instead of device code, which Entra
+>   security defaults block (AADSTS530035).
 > - **Injection screen:** live testing showed Azure OpenAI's Prompt Shields
 >   refuse a whole prompt that contains a jailbreak, so a refusal counts as a
 >   flag and the batch is re-screened item by item (ADR 0004).
