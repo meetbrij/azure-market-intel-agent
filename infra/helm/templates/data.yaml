@@ -1,0 +1,148 @@
+{{- /* In-cluster Postgres and Redis for demo environments only: one replica,
+     no backups, no HA. Real deployments point at managed services. */}}
+{{- $name := include "mia.fullname" . -}}
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}-postgres
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ $name }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mia.selector" (list . "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mia.selector" (list . "postgres") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - name: pg
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: mia
+            - name: POSTGRES_DB
+              value: mia
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}-postgres
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "mia", "-d", "mia"]}
+            periodSeconds: 5
+          livenessProbe:
+            exec: {command: ["pg_isready", "-U", "mia", "-d", "mia"]}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-postgres
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    {{- include "mia.selector" (list . "postgres") | nindent 4 }}
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: pg
+{{- end }}
+{{- if .Values.redis.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-redis
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mia.selector" (list . "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mia.selector" (list . "redis") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # the redis image's user
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          # A queue, not a store: no persistence. If Redis restarts, queued
+          # tasks are lost (see KNOWN_LIMITATIONS); job state and checkpoints
+          # live in Postgres.
+          args: ["redis-server", "--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            periodSeconds: 5
+          livenessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-redis
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    {{- include "mia.selector" (list . "redis") | nindent 4 }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+{{- end }}

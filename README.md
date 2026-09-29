@@ -495,9 +495,34 @@ data, never as instructions:
 
 This is the start of the prompt-injection defence; Phase 4 completes it.
 
+## Kubernetes (Helm on kind)
+
+`infra/helm/` deploys the api, worker, MCP news server and UI, plus Postgres
+and Redis in the cluster for demos. One command sets up a local cluster:
+
+```bash
+infra/kind/up.sh            # kind cluster, images, ConfigMap from .env, helm install
+kubectl port-forward svc/mia-ui 8501:8501    # sign in at http://localhost:8501
+kubectl port-forward svc/mia-api 8000:8000   # the API, for curl
+infra/kind/down.sh          # delete the cluster
+```
+
+- **Pods:** non-root, read-only root filesystem, no capabilities.
+- **Probes:** liveness is kept apart from readiness. A database outage takes
+  the API out of rotation; it doesn't restart it.
+- **Worker:** exactly one, with the `Recreate` strategy.
+- **NetworkPolicies:** only the worker may reach the news server; only the
+  api and worker may reach Postgres and Redis. These were checked on kind.
+- **Images:** base images are pinned by digest, pip is removed from the
+  runtime image, and a `HEALTHCHECK` runs per component. Sizes: runtime
+  397 MB before and after. The trade-off is in
+  [ADR 0005](docs/adr/0005-kubernetes.md), which also explains why there is
+  no AKS: it costs money every month for the same talking point.
+
 ## Azure auth in containers (local only)
 
-The `local` image target adds the Azure CLI. docker-compose mounts `~/.azure`
+The `local` image target adds the Azure CLI. docker-compose (and kind, via the
+node mount in `infra/kind/up.sh`) mounts `~/.azure`
 read-only and pins `AZURE_TOKEN_CREDENTIALS=AzureCliCredential`. On start, the
 container copies the mount into a writable directory, because `az` rewrites
 its token cache when it refreshes a token. Your host `~/.azure` is never
@@ -522,9 +547,11 @@ app/
 ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
 mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
 ui/                             Streamlit client (app.py, api_client.py, Dockerfile)
-evals/                          golden set, eval harness, thresholds; ragas/ = isolated scorer
+evals/                          golden set, eval harness, thresholds, cost reconcile; ragas/ = isolated scorer
+infra/helm/, infra/kind/        Helm chart (values.yaml, values-local.yaml); kind up/down scripts
+infra/entra/                    Entra app registrations (setup.sh)
 results/                        committed eval runs (baseline + bench-{vector,hybrid,hybrid_semantic})
 tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
-docs/                           specs, ADRs 0001–0003 and 0007, media/ (demo clips)
+docs/                           specs, ADRs 0001–0005 and 0007, observability, media/
 Dockerfile, docker-compose.yml  runtime + local images; full local stack
 ```

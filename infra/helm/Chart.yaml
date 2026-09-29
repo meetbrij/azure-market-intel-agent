@@ -1,0 +1,9 @@
+apiVersion: v2
+name: mia
+description: >-
+  Market Intelligence Agent: research API, LangGraph worker, MCP news server
+  and (optionally) the Streamlit client, plus in-cluster Postgres and Redis
+  for demo environments.
+type: application
+version: 0.1.0
+appVersion: "0.3.0"

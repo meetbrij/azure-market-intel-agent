@@ -125,4 +125,13 @@ and CLI traces):
 3. **Failure rate:** view *Traces*, metric *Count*, broken down by tag
    (`outcome:completed` vs `outcome:failed`), shown as a bar or pie.
 
-Screenshot: [`docs/media/langfuse-dashboard.png`](media/langfuse-dashboard.png).
+The dashboard as built (2026-09-29, a day of demo jobs):
+
+![Research jobs dashboard](media/Dashboards-Langfuse-01.png)
+
+More views: [02](media/Dashboards-Langfuse-02.png), [03](media/Dashboards-Langfuse-03.png).
+
+> The cost tile in this screenshot uses the *Observations* view, so its
+> $0.0013 is the average cost of one model call or span, not of a report
+> (reports cost about $0.05–0.08; see above). For cost per report, switch
+> that widget to the *Traces* view, metric *Total cost*, as in step 1.

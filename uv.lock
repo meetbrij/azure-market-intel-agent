@@ -375,7 +375,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "langchain" },
     { name = "langchain-mcp-adapters" },
-    { name = "langchain-text-splitters" },
     { name = "langfuse" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
@@ -386,7 +385,6 @@ dependencies = [
     { name = "psycopg-pool" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
-    { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
@@ -402,6 +400,10 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+]
+ingest = [
+    { name = "langchain-text-splitters" },
+    { name = "pypdf" },
 ]
 ui = [
     { name = "httpx" },
@@ -421,7 +423,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "langchain", specifier = ">=1.0" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.2" },
-    { name = "langchain-text-splitters", specifier = ">=1.1.2" },
     { name = "langfuse", specifier = ">=4.15.4" },
     { name = "langgraph", specifier = ">=1.2.12" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.1.2" },
@@ -432,7 +433,6 @@ requires-dist = [
     { name = "psycopg-pool", specifier = ">=3.3.3" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
-    { name = "pypdf", specifier = ">=6.19.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.54" },
@@ -448,6 +448,10 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.16.8" },
+]
+ingest = [
+    { name = "langchain-text-splitters", specifier = ">=1.1.2" },
+    { name = "pypdf", specifier = ">=6.19.0" },
 ]
 ui = [
     { name = "httpx", specifier = ">=0.28.1" },

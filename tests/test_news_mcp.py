@@ -230,3 +230,33 @@ def test_web_text_cannot_close_the_fence() -> None:
     assert text.count(close) == 1  # only the real one, at the end
     assert text.rstrip().endswith(close)
     assert text.index("Headline") > text.index(prompts.UNTRUSTED_OPEN)  # title fenced
+
+
+async def test_runner_reconnects_when_the_server_comes_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The news server may start after the worker, or restart: the runner
+    keeps retrying instead of leaving every later job without news."""
+    import asyncio
+
+    monkeypatch.setattr(tools, "RECONNECT_FIRST_WAIT_S", 0.01)
+    attempts = 0
+    connected = asyncio.Event()
+
+    async def session(self: tools.NewsToolRunner) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise ConnectionError("news server not up yet")
+        tools.set_news_tool(object())  # type: ignore[arg-type]
+        connected.set()
+        await self._stop.wait()
+
+    monkeypatch.setattr(tools.NewsToolRunner, "_session", session)
+    runner = tools.NewsToolRunner()
+    await runner.start()  # returns once the first attempt has failed
+    await asyncio.wait_for(connected.wait(), 2)
+
+    assert attempts == 3 and tools.get_news_tool() is not None
+    await runner.stop()
+    assert tools.get_news_tool() is None

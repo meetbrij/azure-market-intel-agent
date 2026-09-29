@@ -33,7 +33,7 @@ REQUEST_SECONDS = Histogram(
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 )
 JOBS = Gauge("research_jobs", "Research jobs by status", ["status"], registry=REGISTRY)
-_QUIET_ROUTES = {"/metrics", "/health"}  # probes: counted, not logged
+_QUIET_ROUTES = {"/metrics", "/health", "/livez"}  # probes: counted, not logged
 
 
 async def time_requests(

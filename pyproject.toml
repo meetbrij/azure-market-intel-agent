@@ -15,7 +15,6 @@ dependencies = [
     "fastapi>=0.141.1",
     "langchain>=1.0",
     "langchain-mcp-adapters>=0.3.2",
-    "langchain-text-splitters>=1.1.2",
     "langfuse>=4.15.4",
     "langgraph>=1.2.12",
     "langgraph-checkpoint-postgres>=3.1.2",
@@ -26,7 +25,6 @@ dependencies = [
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
     "pyjwt[crypto]>=2.10",
-    "pypdf>=6.19.0",
     "python-dotenv>=1.2.3",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.54",
@@ -43,11 +41,20 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.8",
 ]
+ingest = [
+    "langchain-text-splitters>=1.1.2",
+    "pypdf>=6.19.0",
+]
 ui = [
     "httpx>=0.28.1",
     "msal>=1.31",
     "streamlit>=1.64.0",
 ]
+
+[tool.uv]
+# `uv run` includes ingestion's PDF parsing; container images don't
+# (Dockerfile: --no-default-groups).
+default-groups = ["dev", "ingest"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

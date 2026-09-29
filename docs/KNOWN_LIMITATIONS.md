@@ -1,6 +1,6 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 16. Each
+Trade-offs we accepted on purpose, and gaps we know about, as of Day 17. Each
 entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
@@ -19,7 +19,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The UI keeps sign-ins in memory: reloading the page (or restarting the UI) means signing in again, and pending sign-ins are per UI process | Low | Tokens never touch disk; one UI container | A server-side session store if the UI is scaled out |
 | The injection screen uses the same model family as the writer, and its false positives drop genuine news | Low | Prompt Shields is an independent second detector; news is supplementary and withheld items are reported | A dedicated classifier; measure precision/recall on a labelled set |
 | Jobs created before Day 15 have no submitter, so only approvers can see them | Low | Old demo data | — |
-| Local containers authenticate with your Azure CLI login (mounted `~/.azure`) | Low | Local development only; the deployable image doesn't include it | Day 18: managed identity |
+| Local containers (Compose and kind) authenticate with your Azure CLI login (mounted `~/.azure`, read-only) | Low | Local development only; the deployable image doesn't include it | Day 18: managed identity |
 | Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | Clients are now only signed-in users of this tenant | Day 16: a generic message for clients, details in logs and traces |
 | Markdown neutralising misses reference-style links (`[x][1]` plus `[1]: url`) in model prose | Low | Needs a model to produce them; images, inline links and HTML are handled (D-38) | Drop link-definition lines when rendering |
 
@@ -32,7 +32,6 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Schema changes are idempotent `ALTER`s at startup, not migrations | Low | One schema, a few columns | Alembic |
 | A node interrupted mid-call re-runs on resume (at-least-once), repeating that LLM or Search call | Low | The cost is one repeated call, never corrupted state | — (inherent to checkpointing at node boundaries) |
 | A job whose enqueue was lost (the API died between saving the row and enqueueing) stays `queued` forever; recovery only looks at `running` jobs | Medium | A narrow window, and re-running is safe (the checkpoint decides what to do) | Recovery also re-enqueues `queued` jobs older than a few minutes that have no arq task |
-| The news MCP subprocess isn't restarted if it dies; later jobs degrade to "news unavailable" until the worker restarts | Low | News is supplementary and the gap is reported | Reconnect on the next job |
 | The MCP server's first tool call reads the Tavily key from Key Vault synchronously, using part of the 30 s call budget | Low | Only the first call after startup; it degrades if it runs out | Read the key at server startup |
 | Archiving is best-effort: a job can complete without an archive bundle | Low | Losing a finished report to a storage error would be worse | Operations view alert or retry job, if needed |
 | Langfuse's legacy trace API is being retired (Nov 2026); our reads already use the v2 observations API, but the SDK's LangChain handler is the part to watch on upgrades | Low | Nesting is pinned by a test | Re-run `tests/test_observability.py` on every SDK upgrade |
@@ -84,11 +83,20 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Low model quotas make jobs slow (a report takes 3–6 minutes; the full eval about 21) | Low | A cost choice on a dev subscription | Higher TPM, or parallelism in the eval |
 | Adding a company means editing the alias list in `ingestion/parse.py` | Low | Three companies | Read the issuer from the cover page only, or from configuration |
 | The jobs list has no pagination (limit ≤ 200) | Low | Demo volumes | Cursor pagination |
-| The local image is 773 MB (it includes the Azure CLI); the UI image is 569 MB | Low | Local only; the runtime image is 355 MB | Day 17: image hardening |
-| The `uv:0.12` build image tag floats | Low | Minor-version pinned; the lockfile pins everything installed | Day 17: pin by digest |
+| Images are large for what they do: runtime 397 MB, local (with the Azure CLI) 775 MB, UI 591 MB. The bulk is transitive dependencies, and dropping precompiled bytecode (−57 MB) doubled start time | Low | Measured in ADR 0005; the hardening targets what the image allows, not its size | One Postgres driver instead of two; a distroless base |
 | Re-ingesting **without** `--recreate` leaves stale chunks: ids are `{doc}-{chunk_no}`, so a PDF that now yields fewer chunks keeps its old higher-numbered ones | Medium | Ingestion is a one-off and the docs use `--recreate` | Delete a document's chunks with `chunk_no >= n` after uploading |
 | `--recreate` deletes the live index before embedding starts; a failed run leaves it empty and every job degrades | Medium | A local, supervised one-off | Build into a new index name and switch `AZURE_SEARCH_INDEX` (the Free tier allows 3) |
 | No unit tests for `ingestion/` (chunking, filename parsing, cover-page metadata) | Low | Verified end to end with `ingestion.verify` and the page checks | Add them before the next corpus change |
+
+## Kubernetes (kind)
+
+| Limitation | Impact | Why accepted | Removed by |
+|---|---|---|---|
+| In-cluster Postgres has no backups or HA; Redis has no persistence, so a Redis restart loses queued (not yet running) tasks | Medium | Demo environments only; production values point at managed services | Managed Postgres/Redis (Day 18) |
+| On first start the worker restarts until Postgres accepts connections (no start order in Kubernetes) | Low | Seconds; restarts are Kubernetes' retry | An init container waiting for Postgres |
+| No Ingress on kind (no controller); local runs use port-forward | Low | The sign-in redirect is `localhost:8501` anyway; the Ingress template is linted with production values | An ingress controller in the kind setup |
+| The UI must run one replica (a sign-in in progress is held in its process) | Low | Demo client | A shared session store |
+| Egress isn't restricted: pods can reach any external host | Low | They need Azure, Tavily, Langfuse and Entra; FQDN egress rules need a CNI that supports them | FQDN-based egress policy in the real cluster |
 
 ## Resolved
 
@@ -112,3 +120,5 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | No classifier screen for injected instructions in news | Day 15 | Classifier + Azure Prompt Shields, fail closed (D-66, ADR 0004) |
 | No audit table | Day 15 | Append-only `audit_events` (D-65) |
 | No `/metrics`, tracing or dashboards | Day 16 | Langfuse trace per job; Prometheus `/metrics` (D-68 to D-71) |
+| The news MCP subprocess wasn't restarted if it died, so later jobs degraded until the worker restarted | Day 17 | The runner reconnects with backoff; news now runs as its own service (D-75) |
+| The `uv` build image tag floated; base images weren't pinned | Day 17 | Pinned by digest (D-73) |

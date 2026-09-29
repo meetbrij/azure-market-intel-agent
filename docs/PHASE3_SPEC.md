@@ -257,6 +257,19 @@ AKS is intentionally skipped: same talking point, real monthly cost. Say exactly
 that in the ADR (`docs/adr/0005-kubernetes.md`), because "I chose not to spend
 money on it" is a better answer than silence.
 
+> **As built (Day 17):**
+> - **Image sizes:** runtime 397 MB → 397 MB. Dropping precompiled bytecode
+>   would save 57 MB but doubled start time, so it was kept.
+> - **Hardening:** base images pinned by digest, pip removed, and a
+>   per-component `HEALTHCHECK`.
+> - **Postgres/Redis:** plain manifests, not Bitnami.
+> - **News server:** now its own service over HTTP; the worker reconnects to
+>   it.
+> - **UI:** included (optional), because sign-in redirects to
+>   `localhost:8501`.
+> - **Verification:** port-forward on kind, with NetworkPolicies checked
+>   between pods. See ADR 0005 and DECISIONS D-73 to D-77.
+
 ---
 
 ## Day 18 — Azure deployment and CI/CD

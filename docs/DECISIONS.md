@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 16, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 17, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -89,8 +89,13 @@ day's definition of done.
 | D-70 | 16 | Observability | Langfuse prices calls from model names; we never compute cost for tracing |
 | D-71 | 16 | Observability | Prometheus `/metrics` for request latency and jobs by status |
 | D-72 | 16 | Evaluation | Eval runs can be traced; `evals.reconcile` checks cost against Langfuse |
+| D-73 | 17 | Platform | Images: pinned digests, no package manager, per-component HEALTHCHECK; bytecode kept |
+| D-74 | 17 | Platform | One Helm chart, verified on kind; plain manifests for demo Postgres/Redis; no AKS |
+| D-75 | 17 | Platform | News server as its own service; the worker reconnects |
+| D-76 | 17 | Platform | Probes separate liveness from readiness; one worker, Recreate |
+| D-77 | 17 | Security | Least-privilege pods and NetworkPolicies; generated Postgres password |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-20](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-21](#found-in-live-testing).
 
 ---
 
@@ -527,7 +532,8 @@ hybrid and semantic ranking.
   and closed by the same task.
 - **Why:** The spec says not to handshake per request, and arq's startup and
   shutdown hooks may run in different tasks.
-- **Status:** Active.
+- **Status:** Active. Since Day 17 (D-75) the session is also re-opened with
+  backoff whenever it drops, and in Kubernetes it runs over HTTP.
 
 ### D-36 · Job stages read from the checkpoint, not duplicated · Day 12
 - **Decision:** `GET /research/{id}` reads plan, evidence and critique from
@@ -958,6 +964,73 @@ in the limitations.
 
 ---
 
+## Containers and Kubernetes (Day 17)
+
+Full reasoning: [ADR 0005](adr/0005-kubernetes.md).
+
+### D-73 · Images: pinned digests, no package manager, per-component HEALTHCHECK; bytecode kept · Day 17
+- **Decision:**
+  - The python and uv base images are pinned by digest (multi-arch index).
+  - pip, setuptools and wheel are removed from the runtime image, and the
+    `USER` is numeric.
+  - `HEALTHCHECK` runs `python -m app.healthcheck`, which uses
+    `MIA_COMPONENT` to pick the api, worker or news check.
+  - Ingestion-only packages (`pypdf`, the text splitters) moved to an
+    `ingest` dependency group, which images don't install.
+- **Measured:** the runtime image stayed at 397 MB. Dropping precompiled
+  bytecode would save 57 MB but doubled import time (2.1 s → 4.4 s) for
+  every start and probe, so the bytecode stays.
+- **Status:** Active.
+
+### D-74 · One Helm chart, verified on kind; plain manifests for demo Postgres/Redis; no AKS · Day 17
+- **Decision:**
+  - `infra/helm/` has production-leaning `values.yaml` and a
+    `values-local.yaml` for kind. `infra/kind/up.sh` builds, loads and
+    installs.
+  - Postgres and Redis use the official images in small templates, not the
+    Bitnami charts (whose images moved behind a subscription in 2025).
+  - AKS was skipped on purpose: a real monthly cost for the same talking
+    point. Day 18 uses Container Apps.
+- **Status:** Active.
+
+### D-75 · News server as its own service; the worker reconnects · Day 17
+- **Decision:**
+  - In Kubernetes, the MCP server runs as its own Deployment over streamable
+    HTTP (`NEWS_MCP_URL`).
+  - It enforces DNS-rebinding protection with an explicit allowed-hosts list
+    (FastMCP turns the protection off when bound off-loopback).
+  - The worker's `NewsToolRunner` reconnects with exponential backoff (1 s
+    up to 60 s) whenever the session can't start or drops. Before, one
+    failure left every later job without news until the worker restarted.
+- **Status:** Active; verified on kind (worker → news over HTTP).
+
+### D-76 · Probes separate liveness from readiness; one worker, Recreate · Day 17
+- **Decision:**
+  - **api:** liveness on `/livez` (new; no dependency checks), readiness on
+    `/health`.
+  - **worker:** an exec probe on arq's health key, now refreshed every 30 s
+    (arq's default is hourly).
+  - **news:** a TCP check.
+  - **Worker count:** always one replica, with the `Recreate` strategy, so a
+    rollout never runs two workers (D-25).
+  - **Schema setup:** `init_db` runs in the worker too, under a Postgres
+    advisory lock, since Kubernetes gives no start order.
+- **Status:** Active.
+
+### D-77 · Least-privilege pods and NetworkPolicies; generated Postgres password · Day 17
+- **Decision:**
+  - **Pods:** non-root, a read-only root filesystem, all capabilities
+    dropped, no privilege escalation, the seccomp `RuntimeDefault` profile,
+    and no service-account token.
+  - **Ingress NetworkPolicies:** only the worker may reach news; only the
+    api and worker may reach Postgres and Redis.
+  - **Postgres password:** generated by the chart and kept across upgrades.
+- **Verified on kind** by probing between pods: every allowed path was open
+  and every other was blocked.
+- **Status:** Active.
+
+---
+
 ## Found in live testing
 
 Bugs that only appeared in real runs, never in unit tests, and the fix each
@@ -985,6 +1058,7 @@ one led to.
 | F-18 | 15 | Device code sign-in was refused with AADSTS530035: the tenant's security defaults block that flow | D-64: auth code + PKCE with localhost redirects; security defaults stay on |
 | F-19 | 16 | Langfuse's legacy `GET /traces/{id}` returns 410 for organisations created after 2026-09-16 | Read through `/v2/observations` (D-72) |
 | F-20 | 16 | The smoke gate failed once on citation validity (0.75): the model shortened long reference ids (`amzn-332` for `amzn-annual-report-10k-332`); two re-runs scored 1.0 | Recorded as a limitation; proposed fix: short per-prompt reference labels mapped back in Python |
+| F-21 | 17 | Uninstalling pip in a later image layer didn't shrink the image (the base layer keeps the bytes); precompiled bytecode is 70 MB of the venv | Size kept, trade-off recorded (D-73) |
 
 ---
 

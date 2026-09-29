@@ -61,8 +61,17 @@ _POSTGRES_MIGRATIONS = [
 ]
 
 
+# Any constant: serialises schema setup between processes starting together.
+_SCHEMA_LOCK_ID = 7_214_019
+
+
 async def init_db() -> None:
+    """Create/upgrade the tables. Idempotent, and safe when the API and the
+    worker start at the same moment (Kubernetes gives no start order): on
+    Postgres the whole setup runs under a transaction-scoped advisory lock."""
     async with get_engine().begin() as conn:
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text(f"SELECT pg_advisory_xact_lock({_SCHEMA_LOCK_ID})"))
         await conn.run_sync(Base.metadata.create_all)
         if conn.dialect.name == "postgresql":
             for statement in _POSTGRES_MIGRATIONS:

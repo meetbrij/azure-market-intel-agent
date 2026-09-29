@@ -1,0 +1,44 @@
+{{- $name := include "mia.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-config
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.news.enabled }}
+  # The news server only answers requests addressed to its Service name
+  # (DNS-rebinding protection; FastMCP turns it off off-loopback).
+  NEWS_MCP_ALLOWED_HOSTS: {{ printf "%s-news:*,%s-news.%s.svc.cluster.local:*" $name $name .Release.Namespace | quote }}
+  {{- end }}
+{{- if .Values.postgres.enabled }}
+---
+{{- /* A generated password, kept across upgrades; never in values or git. */}}
+{{- $secretName := printf "%s-postgres" $name }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+type: Opaque
+data:
+  POSTGRES_PASSWORD: {{ if $existing }}{{ index $existing.data "POSTGRES_PASSWORD" }}{{ else }}{{ randAlphaNum 24 | b64enc }}{{ end }}
+{{- end }}
+{{- if or .Values.serviceAccount.annotations .Values.podLabels }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

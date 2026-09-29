@@ -1,0 +1,71 @@
+{{- if .Values.ui.enabled }}
+{{- $name := include "mia.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-ui
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  # One replica: a sign-in in progress is held in the UI process (ui/auth.py).
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mia.selector" (list . "ui") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mia.selector" (list . "ui") | nindent 8 }}
+    spec:
+      {{- include "mia.podSecurity" . | nindent 6 }}
+      containers:
+        - name: ui
+          image: "{{ .Values.uiImage.repository }}:{{ .Values.uiImage.tag }}"
+          imagePullPolicy: {{ .Values.uiImage.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ui.port }}
+          envFrom:
+            {{- range .Values.extraEnvFromConfigMaps }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+          env:
+            - name: API_BASE_URL
+              value: http://{{ $name }}-api:{{ .Values.api.service.port }}
+          {{- include "mia.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/app
+          readinessProbe:
+            httpGet: {path: /_stcore/health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /_stcore/health, port: http}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-ui
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  selector:
+    {{- include "mia.selector" (list . "ui") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.ui.port }}
+      targetPort: http
+{{- end }}

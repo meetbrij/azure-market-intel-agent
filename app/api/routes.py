@@ -310,6 +310,13 @@ async def metrics() -> Response:
     return await render_metrics()
 
 
+@router.get("/livez", include_in_schema=False)
+async def livez() -> dict[str, str]:
+    """Liveness: the process is serving. No dependency checks, so a database
+    outage makes the API unready (/health), not restarted."""
+    return {"status": "ok"}
+
+
 @router.get("/health", response_model=Health)
 async def health(queue: Queue, response: Response) -> Health:
     checks: dict[str, str] = {}

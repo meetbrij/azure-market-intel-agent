@@ -219,6 +219,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     stack = AsyncExitStack()
     ctx["stack"] = stack
     await asyncio.to_thread(init_tracing)  # reads keys from Key Vault; off if absent
+    await store.init_db()  # the worker may start before the API (Kubernetes)
     checkpointer = await stack.enter_async_context(postgres_checkpointer())
     ctx["graph"] = build_graph(checkpointer)
     await _archive_best_effort("container setup", archive.ensure_container())
@@ -247,4 +248,7 @@ class WorkerSettings:
     # ... -> compact, with each LLM node capped at NODE_TIMEOUT_S (300s). 600s
     # could cut a slow but healthy run and leave it "running" until restart.
     job_timeout = 1800
+    # arq refreshes a health key this often (TTL = interval + 1 s);
+    # `python -m app.healthcheck` with MIA_COMPONENT=worker checks it.
+    health_check_interval = 30
     max_jobs = 4

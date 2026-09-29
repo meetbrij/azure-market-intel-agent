@@ -46,6 +46,12 @@ services:
   worker:
     <<: *app
     command: ["arq", "app.jobs.worker.WorkerSettings"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mia:mia@postgres:5432/mia
+      REDIS_URL: redis://redis:6379/0
+      AZURE_TOKEN_CREDENTIALS: AzureCliCredential
+      LANGGRAPH_STRICT_MSGPACK: "true"
+      MIA_COMPONENT: worker  # the image's HEALTHCHECK checks arq's health key
     depends_on:
       # The api creates the jobs table on startup.
       api:

@@ -115,9 +115,17 @@ def server_connection() -> Connection:
     }
 
 
+RECONNECT_FIRST_WAIT_S = 1.0
+RECONNECT_MAX_WAIT_S = 60.0
+
+
 class NewsToolRunner:
     """Holds the MCP session open in its own task (anyio cancel scopes must be
-    entered and exited by the same task) and registers the tool."""
+    entered and exited by the same task) and registers the tool.
+
+    If the server isn't up yet, or the session drops (e.g. the news pod
+    restarts), it reconnects with backoff; jobs degrade to "news unavailable"
+    only while it's down."""
 
     def __init__(self) -> None:
         self._stop = asyncio.Event()
@@ -137,19 +145,34 @@ class NewsToolRunner:
         return get_news_tool() is not None
 
     async def _run(self) -> None:
+        wait = RECONNECT_FIRST_WAIT_S
+        while not self._stop.is_set():
+            try:
+                await self._session()
+                wait = RECONNECT_FIRST_WAIT_S  # it ran and ended: reconnect promptly
+            except Exception as e:  # noqa: BLE001 — any failure: retry later
+                log.warning(
+                    "News MCP server unavailable (%s); jobs degrade until it's back. "
+                    "Retrying in %.0fs",
+                    type(e).__name__,
+                    wait,
+                )
+            finally:
+                set_news_tool(None)
+                self._ready.set()  # don't hold up worker startup
+            try:
+                await asyncio.wait_for(self._stop.wait(), wait)
+            except TimeoutError:
+                wait = min(wait * 2, RECONNECT_MAX_WAIT_S)
+
+    async def _session(self) -> None:
         client = MultiServerMCPClient({"news": server_connection()})
-        try:
-            async with client.session("news") as session:
-                tools = {t.name: t for t in await load_mcp_tools(session)}
-                set_news_tool(McpNewsTool(tools["search_company_news"]))
-                log.info("News MCP server connected; tools: %s", sorted(tools))
-                self._ready.set()
-                await self._stop.wait()
-        except Exception:
-            log.exception("News MCP server unavailable; runs will be degraded")
-        finally:
-            set_news_tool(None)
+        async with client.session("news") as session:
+            tools = {t.name: t for t in await load_mcp_tools(session)}
+            set_news_tool(McpNewsTool(tools["search_company_news"]))
+            log.info("News MCP server connected; tools: %s", sorted(tools))
             self._ready.set()
+            await self._stop.wait()
 
     async def stop(self) -> None:
         self._stop.set()

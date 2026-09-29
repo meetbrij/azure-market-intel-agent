@@ -1,0 +1,36 @@
+# kind on a laptop: `local` image (Azure CLI inside), your `az login`
+# mounted read-only, in-cluster Postgres/Redis, the Streamlit client, and
+# port-forwarding instead of an Ingress. infra/kind/up.sh does the rest.
+#
+# Real auth stays on: sign in through the UI (port-forward 8501, the redirect
+# registered on mia-ui) or get a token with scripts/get_token.py.
+
+image:
+  tag: local
+uiImage:
+  tag: local
+
+config:
+  ENVIRONMENT: local
+  AZURE_TOKEN_CREDENTIALS: AzureCliCredential   # skip the managed-identity probe
+
+# Endpoints, deployment names and the Entra ids, made by infra/kind/up.sh
+# from your .env (which holds no secrets: keys live in Key Vault).
+extraEnvFromConfigMaps:
+  - mia-env
+
+postgres:
+  enabled: true
+redis:
+  enabled: true
+
+api:
+  replicas: 1
+  ingress:
+    enabled: false          # kind has no ingress controller; port-forward instead
+
+ui:
+  enabled: true
+
+azureCliLogin:
+  enabled: true

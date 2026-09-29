@@ -1,0 +1,81 @@
+{{- if .Values.news.enabled }}
+{{- $name := include "mia.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-news
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: news
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mia.selector" (list . "news") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mia.selector" (list . "news") | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      {{- include "mia.podSecurity" . | nindent 6 }}
+      {{- if or .Values.serviceAccount.annotations .Values.podLabels }}
+      serviceAccountName: {{ $name }}
+      {{- end }}
+      containers:
+        - name: news
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The MCP news server over streamable HTTP; the Tavily key is read
+          # from Key Vault inside this pod and never leaves it.
+          args: ["python", "-m", "mcp_news.server"]
+          ports:
+            - name: mcp
+              containerPort: {{ .Values.news.port }}
+          envFrom:
+            {{- range .Values.extraEnvFromConfigMaps }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+            - configMapRef:
+                name: {{ $name }}-config
+          env:
+            - name: MIA_COMPONENT
+              value: news
+            - name: NEWS_MCP_TRANSPORT
+              value: streamable-http
+            - name: NEWS_MCP_HOST
+              value: 0.0.0.0
+            - name: NEWS_MCP_PORT
+              value: {{ .Values.news.port | quote }}
+          {{- include "mia.containerSecurity" . | nindent 10 }}
+          {{- include "mia.volumeMounts" . | nindent 10 }}
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.news.resources | nindent 12 }}
+      {{- include "mia.volumes" . | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-news
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: news
+spec:
+  selector:
+    {{- include "mia.selector" (list . "news") | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ .Values.news.port }}
+      targetPort: mcp
+{{- end }}

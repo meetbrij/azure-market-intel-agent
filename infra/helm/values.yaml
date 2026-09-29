@@ -1,0 +1,91 @@
+# Defaults lean towards a real deployment: the slim `runtime` image, real
+# auth, external Postgres/Redis, an Ingress. values-local.yaml flips what a
+# kind cluster on a laptop needs. See docs/adr/0005-kubernetes.md.
+
+image:
+  repository: azure-market-intel-agent
+  tag: runtime
+  pullPolicy: IfNotPresent
+uiImage:
+  repository: azure-market-intel-agent-ui
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Non-secret application config (a ConfigMap). The Azure endpoints and
+# deployment names must be set here or supplied via extraEnvFromConfigMaps.
+config:
+  ENVIRONMENT: production
+  DEV_AUTH_BYPASS: "false"
+  APPROVAL_REQUIRED: "true"
+  RETRIEVAL_MODE: hybrid_semantic
+  LANGGRAPH_STRICT_MSGPACK: "true"
+  TRACING_ENABLED: "true"
+  NEWS_ENABLED: "true"
+
+# Extra ConfigMaps loaded as environment (e.g. one made from a .env of
+# endpoints and ids). The chart's own config and connection settings win.
+extraEnvFromConfigMaps: []
+
+# Postgres/Redis: in-cluster (demo) or external.
+postgres:
+  enabled: false            # true: run postgres:16 in the cluster (demo data only)
+  image: postgres:16
+  storage: 1Gi
+  # External database: a Secret holding the full DATABASE_URL.
+  externalUrlSecret: ""     # e.g. mia-database
+  externalUrlSecretKey: DATABASE_URL
+redis:
+  enabled: false            # true: run redis:7 in the cluster
+  image: redis:7
+  externalUrl: ""           # e.g. rediss://:<from secret>@host:6380/0
+
+api:
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  service:
+    port: 8000
+  ingress:
+    enabled: true
+    className: nginx
+    host: mia.example.com
+    tls: []                 # [{secretName: mia-tls, hosts: [mia.example.com]}]
+    annotations: {}
+
+worker:
+  # Exactly one: crash recovery releases stale arq locks on startup, which is
+  # only safe with a single worker (DECISIONS D-25). Deployed with the
+  # Recreate strategy so a rollout never runs two at once.
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  terminationGracePeriodSeconds: 30
+
+news:
+  enabled: true
+  port: 8001
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+ui:
+  enabled: false
+  port: 8501
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# Local only: reuse the host's `az login` (kind mounts ~/.azure into the node
+# at /host-azure; pods mount it read-only). Needs the `local` image, which
+# has the Azure CLI. In Azure, use workload identity instead (Day 18).
+azureCliLogin:
+  enabled: false
+  nodePath: /host-azure
+
+serviceAccount:
+  annotations: {}           # e.g. azure.workload.identity/client-id: <id>
+podLabels: {}               # e.g. azure.workload.identity/use: "true"
+
+networkPolicy:
+  enabled: true

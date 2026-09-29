@@ -1,0 +1,106 @@
+{{- $name := include "mia.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-api
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mia.selector" (list . "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mia.selector" (list . "api") | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll pods when the config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      {{- include "mia.podSecurity" . | nindent 6 }}
+      {{- if or .Values.serviceAccount.annotations .Values.podLabels }}
+      serviceAccountName: {{ $name }}
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # args, not command: keeps the local image's entrypoint (Azure CLI login copy).
+          args: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+          {{- include "mia.env" (list . "api") | nindent 10 }}
+          {{- include "mia.containerSecurity" . | nindent 10 }}
+          {{- include "mia.volumeMounts" . | nindent 10 }}
+          startupProbe:         # startup: imports + table setup, up to ~60 s
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:        # the process serves; dependencies don't matter here
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 3
+          readinessProbe:       # Postgres and Redis reachable, else out of the Service
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+      {{- include "mia.volumes" . | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-api
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    {{- include "mia.selector" (list . "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http
+{{- if .Values.api.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}-api
+  labels:
+    {{- include "mia.labels" . | nindent 4 }}
+  {{- with .Values.api.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.api.ingress.className }}
+  {{- with .Values.api.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.api.ingress.host | quote }}
+      http:
+        paths:
+          # /metrics stays internal: scraped in-cluster, not published.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}-api
+                port: {name: http}
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $name }}-api
+                port: {name: http}
+{{- end }}
