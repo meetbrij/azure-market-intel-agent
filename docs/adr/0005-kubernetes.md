@@ -44,6 +44,14 @@ release in one command. Verified on 2026-09-29:
 - pods ran as uid 10001 on a read-only root filesystem;
 - through a port-forward, `/health` was ok and `/api/v1/*` returned 401
   without a token.
+- **a job ran end to end:**
+  - an analyst (Gmail account) submitted it through the UI, via
+    port-forward, signed in with Entra ID;
+  - the critic sent it round for a second pass, and a different user with
+    the approver role approved both passes;
+  - the report was archived to Blob;
+  - its audit trail reads `job_submitted`, 8 × `llm_call`,
+    2 × `approval_decided` (approver), `job_completed`.
 
 **I didn't use the Bitnami charts** for Postgres and Redis. In 2025 their
 images moved behind a subscription or to a "legacy" repository. And a
