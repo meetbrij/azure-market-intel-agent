@@ -1104,9 +1104,11 @@ Full reasoning: [ADR 0006](adr/0006-deployment-topology.md).
     workload identity federation, so no secret exists.
   - The pipeline's identity needs data-plane roles for the eval gate
     (OpenAI User, Search Index Data Reader).
-- **Status:** Written and wired, since the Azure DevOps pipeline already
-  points at `infra/azure-pipelines.yml`. It waits on the service connection
-  and on Microsoft's free hosted-agent grant.
+- **Status:** Active.
+  - The free hosted-agent tier applies once the Azure DevOps organisation is
+    linked to the subscription for billing; the old request form is
+    retired.
+  - Run 25 passed all four stages, and the apps run the image it built.
 
 ### D-83 · $50 monthly budget with actual and forecast alerts · Day 18
 - **Decision:** a subscription budget `mia-monthly-50`, which emails at 80%

@@ -67,7 +67,6 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The golden set was written by one author, from the filing text | Low | Answers are quoted and page-cited, so they can be checked | A human review pass |
 | The eval gives each question its company filter; the real system's planner picks companies itself | Low | It isolates the retriever, as the spec asks | A full-graph eval variant |
 | "Expected page retrieved" is page-level and overstates hits (a page spans several chunks) | Low | Labelled as such; chunk-level recall comes from RAGAS | Expected-snippet matching |
-| The pipeline (eval gate included) can't run until the Azure DevOps service connection exists and Microsoft grants free hosted agents (a 2–3 day request) | Medium | The pipeline is written and wired to `infra/azure-pipelines.yml`; deploys are done with `infra/azure/deploy.sh` meanwhile | The grant, or a self-hosted agent |
 | Abstention is the model's own `abstained` flag; "abstained" with citations or a figure still counts as a correct decline | Low | Seen consistent in every run so far | Flag answers where the flag and the content disagree |
 | p95 on small samples is nearest-rank: with 5 smoke questions it is the maximum, with 30 the second-highest | Low | A standard definition; the benchmark reports medians too | Print n next to percentiles |
 | q030's ground truth ("the filing does not mention China") hasn't been checked against the full PDF | Low | No retrieved chunk mentions it; unanswerable items were searched when written | Check by hand |
@@ -130,6 +129,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The UI's role dropdown was a simulation; approvals recorded `reviewer: null` | Day 15 | Roles from the token; the reviewer's identity on each decision and in the archive; submitters can't approve (D-62, D-67) |
 | No classifier screen for injected instructions in news | Day 15 | Classifier + Azure Prompt Shields, fail closed (D-66, ADR 0004) |
 | No audit table | Day 15 | Append-only `audit_events` (D-65) |
+| The eval gate didn't run in CI | Day 18 | Azure Pipelines runs test → eval gate → build → deploy on every push to `main` (D-82) |
 | No `/metrics`, tracing or dashboards | Day 16 | Langfuse trace per job; Prometheus `/metrics` (D-68 to D-71) |
 | The news MCP subprocess wasn't restarted if it died, so later jobs degraded until the worker restarted | Day 17 | The runner reconnects with backoff; news now runs as its own service (D-75) |
 | The `uv` build image tag floated; base images weren't pinned | Day 17 | Pinned by digest (D-73) |

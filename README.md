@@ -1,5 +1,7 @@
 # Azure Market Intelligence Agent
 
+[![Build Status](https://dev.azure.com/meetbrij/market-intel-agent/_apis/build/status%2Fmeetbrij.azure-market-intel-agent?branchName=main)](https://dev.azure.com/meetbrij/market-intel-agent/_build/latest?definitionId=1&branchName=main)
+
 Ask a research question about public companies and get back a structured
 report where every claim cites a specific page of an SEC 10-K filing or a
 news URL.
@@ -14,10 +16,28 @@ it stopped. Every finished report is archived, immutable, with its
 provenance and approval history. A Streamlit client makes the whole flow
 usable from a browser.
 
-**Status:** Phase 2 (agents, MCP and resilience) plus the Day 12 Streamlit
-client, over the FY2025/26 10-Ks of Amazon, Alphabet and Microsoft. Specs:
-[Phase 1](docs/PHASE1_SPEC.md), [Phase 2](docs/PHASE2_SPEC.md),
-[UI](docs/PHASE2_UI_SPEC.md).
+**Live demo** (Azure Container Apps; may be scaled down between uses):
+[UI](https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io) ·
+[API health](https://ca-mia-api.yellowrock-5f661b79.swedencentral.azurecontainerapps.io/health).
+Sign-in is Entra ID, with `analyst` and `approver` roles.
+
+## Results
+
+Measured, not estimated. Sources are linked.
+
+| | |
+|---|---|
+| **Retrieval lift** (hybrid + semantic ranker vs vector) | context precision 0.54 → **0.81**, context recall 0.85 → **1.00**, wrongly declined questions 16% → **0%**, answer page retrieved 76% → **100%** ([benchmark](docs/retrieval-benchmark.md)) |
+| **Faithfulness / abstention** | faithfulness **0.97** over 25 answerable questions (1.00 on the CI smoke set); **100%** of unanswerable questions declined; citation validity **100%** |
+| **Cost per report** | **$0.071** average over 6 real reports ($0.033–$0.088; most took two passes), priced by Langfuse. It reconciles with the eval harness's own cost to $0.000001 ([observability](docs/observability.md)) |
+| **Job latency** | machine time per report: median **7.4 min**, p95 **13.5 min** (6 reports on low-quota gpt-5-mini, two passes typical) |
+| **Resume after crash** | worker killed mid-report in Compose, on kind and in **Azure**: the job resumes from its last checkpoint, and completed steps aren't repeated ([ADR 0003](docs/adr/0003-checkpointing.md), [ADR 0006](docs/adr/0006-deployment-topology.md)) |
+| **Image hardening** | pinned base digests, no package manager, non-root, a health check per component. Size stayed at 397 MB: dropping bytecode would save 57 MB but double start time ([ADR 0005](docs/adr/0005-kubernetes.md)) |
+| **Tests** | 188 offline tests; ruff and mypy clean; the eval gate runs in CI on every push |
+
+What's next: [ROADMAP](docs/ROADMAP.md). Known gaps:
+[KNOWN_LIMITATIONS](docs/KNOWN_LIMITATIONS.md). Why things are the way
+they are: [DECISIONS](docs/DECISIONS.md) and [ADRs](docs/adr/).
 
 ## Architecture
 
@@ -30,18 +50,26 @@ flowchart LR
     end
     E --> S[(Azure AI Search<br/>filings-v1 · HNSW)]
 
-    UI([Streamlit UI<br/>:8501]) -->|HTTP only| API[FastAPI]
-    U([Swagger / curl]) --> API
+    ID{{Entra ID<br/>analyst / approver}} -.->|tokens| UI
+    UI([Streamlit UI]) -->|HTTP + bearer token| API[FastAPI]
+    U([curl + token]) --> API
     API -->|job rows| PG[(Postgres<br/>jobs + langgraph<br/>checkpoints)]
     API -->|enqueue| R[(Redis<br/>arq queue)]
     R --> W[arq worker<br/>LangGraph agent]
     W <-->|state per step| PG
     W -->|hybrid + semantic search| S
     W -->|chat + embeddings| AOAI[Azure OpenAI]
-    W -->|MCP stdio| N[mcp_news server]
+    W -->|"MCP (stdio locally, HTTP in Azure)"| N[mcp_news server]
     N -->|key from Key Vault| T[Tavily]
     W -->|immutable bundle| RB[(Blob Storage<br/>reports)]
+    W -.->|traces| LF[Langfuse]
+    API -->|audit_events| PG
 ```
+
+The code runs the same in three places: Docker Compose on a laptop, a Helm
+chart on kind ([Kubernetes](#kubernetes-helm-on-kind)), and Azure Container
+Apps ([Azure deployment](#azure-deployment-container-apps)). Everything is
+keyless, including Postgres in Azure.
 
 ### The agent graph
 
@@ -63,8 +91,8 @@ flowchart TD
 | Node | Does | If it fails |
 |---|---|---|
 | `plan` | 3–5 sub-questions, companies, whether news is needed (structured output) | job fails |
-| `retrieve_filings` | vector search per sub-question (and per company), deduped | degrades: `data_gaps` |
-| `fetch_news` | recent news via the MCP server, when the plan asks for it | degrades: `data_gaps` |
+| `retrieve_filings` | hybrid + semantic-ranked search per sub-question (and per company), deduped | degrades: `data_gaps` |
+| `fetch_news` | recent news via the MCP server, when the plan asks for it, screened for prompt injection | degrades: `data_gaps` |
 | `compact` | condenses evidence into a ~2K-token brief, keeping every reference id | job fails |
 | `approve_gate` | pauses with the plan and evidence counts until someone resumes | waits |
 | `write` | cited report from the brief and evidence | job fails |
@@ -388,7 +416,17 @@ roles. The job view shows what each produced, as tabs.
 
 ### Demo clips
 
-Three short recordings belong in `docs/media/`:
+Screenshots (the Streamlit client, signed in as each role):
+
+![Analyst: submit a job](docs/media/MIA_analyst_submit_job.png)
+![Approver: approve the plan](docs/media/MIA_approver_approve_job.png)
+![Report view](docs/media/MIA_analyst_view_report.png)
+
+Langfuse dashboard (cost, latency, outcomes):
+
+![Langfuse dashboard](docs/media/Dashboards-Langfuse-01.png)
+
+Still to record: three short clips for `docs/media/`:
 
 1. **Happy path:** submit → progress → approval → approved → cited report.
 2. **Crash resume:** `docker compose kill worker` mid-run, restart; the UI
@@ -494,7 +532,10 @@ data, never as instructions:
    images, inline links and raw HTML neutralised (both `report.md` and the UI's
    Evidence tab, which shows snippets as plain text).
 
-This is the start of the prompt-injection defence; Phase 4 completes it.
+On top of these, news is screened for injected instructions before it
+reaches any prompt, by our classifier plus Azure's Prompt Shields, and
+dropped if the screen can't run. See
+[ADR 0004](docs/adr/0004-untrusted-content.md) for all the layers.
 
 ## Kubernetes (Helm on kind)
 
@@ -558,8 +599,9 @@ its token cache when it refreshes a token. Your host `~/.azure` is never
 modified.
 
 This is for local development only. The `runtime` target (no CLI) is what
-gets deployed. **Phase 4 replaces this with a managed identity** by setting
-`AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential`; no code changes.
+gets deployed. In Azure every app runs with its own managed identity
+(`AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential`), with no code changes;
+see [ADR 0006](docs/adr/0006-deployment-topology.md).
 
 ## Project layout
 
