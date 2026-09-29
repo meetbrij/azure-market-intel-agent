@@ -1054,8 +1054,11 @@ Full reasoning: [ADR 0006](adr/0006-deployment-topology.md).
   - **The UI is deployed too**, a deviation (the spec lists three apps). The
     public demo is then usable in a browser. Its https address was added as
     a redirect on `mia-ui`.
-- **Status:** Active. Deployed 2026-09-29; `/health` ok (Postgres and Redis),
-  and the worker connected to news over internal HTTP.
+- **Status:** Active. Deployed and verified 2026-09-29:
+  - `/health` ok (Postgres and Redis);
+  - the worker connected to news over internal HTTP;
+  - a signed-in job ran end to end;
+  - a worker restarted mid-write resumed from its checkpoint (ADR 0006).
 
 ### D-79 · Keyless Postgres: Entra-only auth, a token per connection, no password anywhere · Day 18
 - **Decision:**

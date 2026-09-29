@@ -108,6 +108,22 @@ ones:
 4. **Deploy:** `az containerapp update` of each app to the new tag, then
    `/health` is polled. Runs on `main` only.
 
+## Verified (2026-09-29)
+
+- **Health:** `/health` was ok for Postgres (keyless) and Redis (internal
+  TCP), and `/api/v1/*` returned 401 without a token.
+- **A real job in Azure:**
+  - an analyst submitted it in the deployed UI, signed in with Entra ID;
+  - a different user with the approver role approved it;
+  - the report was archived;
+  - its audit trail reads `job_submitted`, 8 × `llm_call`,
+    2 × `approval_decided`, `job_completed`.
+- **Crash and resume:** while a job was writing its report, the worker
+  replica was restarted (`az containerapp revision restart`). The new
+  worker's startup recovery found the job still `running`, re-enqueued it,
+  and resumed it **from its checkpoint** (`next=['write']`). Plan and
+  compact weren't repeated; the job went on to its pass-2 approval.
+
 ## Consequences
 
 - **First request after idle:** with the api at zero replicas, it waits for

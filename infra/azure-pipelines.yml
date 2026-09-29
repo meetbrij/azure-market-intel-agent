@@ -119,6 +119,8 @@ stages:
               scriptLocation: inlineScript
               inlineScript: |
                 set -e
+                # Hosted agents don't always have it, and won't prompt to install.
+                az extension add --name containerapp --upgrade --yes --only-show-errors
                 image=$(acrName).azurecr.io/mia:$(imageTag)
                 for app in ca-mia-news ca-mia-worker ca-mia-api; do
                   az containerapp update -g $(resourceGroup) -n $app --image $image -o none
