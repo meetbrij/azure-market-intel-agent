@@ -106,6 +106,11 @@ capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
   report's `data_gaps` and the run still completes. Transient errors (429, 5xx,
   timeouts) are retried with backoff. Chat calls fall back to a second
   deployment on repeated 429s or timeouts. LLM nodes have a wall-clock timeout.
+- **Every job is a trace.** Langfuse shows each node, model call, search and
+  tool call of a job in one trace (trace id = job id), with tokens and cost
+  per node priced by Langfuse. An eval run's cost reconciles with the
+  harness's own calculation to the sixth decimal. `/metrics` exposes API
+  latency and jobs by status. See [Observability](docs/observability.md).
 - **An auditable record of every report.** On completion the worker writes
   `report.json`, `report.md`, `provenance.json` (evidence references, models
   and tokens per node) and one file per approval decision to
@@ -397,6 +402,20 @@ Three short recordings belong in `docs/media/`:
 ![Rejection loop](docs/media/rejection-loop.gif)
 -->
 
+## Observability
+
+- **Tracing:** Langfuse, with one trace per job. The trace id is the job id
+  without dashes, the user is the submitter, and each trace is tagged with
+  the retrieval variant, model and outcome. Keys come from Key Vault;
+  without them, jobs run untraced.
+- **Metrics:** `GET /metrics` (Prometheus) gives request latency per route
+  and jobs by status.
+- **Cost check:** `evals.run --smoke --trace`, then `evals.reconcile`,
+  compares Langfuse's cost with the harness's. They matched exactly.
+
+Details, measured costs and the dashboard recipe:
+[docs/observability.md](docs/observability.md).
+
 ## Report archive
 
 Each completed job writes `report.json`, `report.md` and `provenance.json`
@@ -429,6 +448,8 @@ Beyond the Azure endpoints in `.env.example`, all optional:
 | `ENVIRONMENT` | `local` | anything but `local` forbids `DEV_AUTH_BYPASS` |
 | `DEV_AUTH_BYPASS` | `false` | local only: skip token checks; identity from `X-Dev-User` / `X-Dev-Roles` headers |
 | `NEWS_SCREEN_ENABLED` | `true` | screen news for injected instructions before any prompt (fails closed) |
+| `TRACING_ENABLED` / `LANGFUSE_HOST` | `true` / EU cloud | Langfuse tracing; keys from Key Vault (`langfuse-public-key`, `langfuse-secret-key`); off without them |
+| `AZURE_OPENAI_CHAT_MODEL` / `AZURE_OPENAI_EMBED_MODEL` | `gpt-5-mini` / `text-embedding-3-small` | model names behind the deployments, so Langfuse can price calls |
 
 ## Live news via MCP
 

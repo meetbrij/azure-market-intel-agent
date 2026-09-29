@@ -28,7 +28,18 @@ class Settings(BaseSettings):
     # Written by the ingest CLI into the filings container; read by /ops/status.
     ingestion_manifest_blob: str = "_manifest/last-ingestion.json"
 
+    # Model names behind the deployments, for tracing: Langfuse prices a call
+    # by model name, and a deployment name ("chat-mini") means nothing to it.
+    azure_openai_chat_model: str = "gpt-5-mini"
+    azure_openai_chat_fallback_model: str | None = None
+    azure_openai_embed_model: str = "text-embedding-3-small"
+
+    # Langfuse tracing (Day 16). Keys live in Key Vault; without them (or with
+    # TRACING_ENABLED=false) everything runs untraced.
+    tracing_enabled: bool = True
     langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_public_key_secret: str = "langfuse-public-key"
+    langfuse_secret_key_secret: str = "langfuse-secret-key"
 
     # Entra ID auth (Day 15). The API validates v2 access tokens issued by
     # AUTH_TENANT_ID for the AUTH_API_CLIENT_ID app registration (see

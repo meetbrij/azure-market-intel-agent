@@ -188,9 +188,11 @@ async def fetch_news(state: ResearchState) -> dict[str, Any]:
     new: list[Evidence] = []
     try:
         for company in targets:
-            for item in await tool.search_company_news(
+            # Traced as a tool span by the LangChain callback handler (MCP tool).
+            items = await tool.search_company_news(
                 company, days=NEWS_DAYS, max_results=NEWS_PER_COMPANY
-            ):
+            )
+            for item in items:
                 if item["url"] in known:
                     continue
                 known.add(item["url"])

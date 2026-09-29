@@ -1,6 +1,6 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 15. Each
+Trade-offs we accepted on purpose, and gaps we know about, as of Day 16. Each
 entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
@@ -35,7 +35,9 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The news MCP subprocess isn't restarted if it dies; later jobs degrade to "news unavailable" until the worker restarts | Low | News is supplementary and the gap is reported | Reconnect on the next job |
 | The MCP server's first tool call reads the Tavily key from Key Vault synchronously, using part of the 30 s call budget | Low | Only the first call after startup; it degrades if it runs out | Read the key at server startup |
 | Archiving is best-effort: a job can complete without an archive bundle | Low | Losing a finished report to a storage error would be worse | Operations view alert or retry job, if needed |
-| No `/metrics` endpoint, tracing or dashboards yet | Medium | Scheduled | Day 16: Langfuse, metrics |
+| Langfuse's legacy trace API is being retired (Nov 2026); our reads already use the v2 observations API, but the SDK's LangChain handler is the part to watch on upgrades | Low | Nesting is pinned by a test | Re-run `tests/test_observability.py` on every SDK upgrade |
+| Tracing sends questions, prompts (filing and news excerpts) and reports to Langfuse Cloud | Medium | A demo with public filings; the keys are in Key Vault | Langfuse's `mask` hook for sensitive fields, or self-hosted Langfuse in the deployment region |
+| The parenting of our spans relies on the Langfuse handler's internal run map | Low | One small function; a test fails if it breaks | A public SDK hook, if Langfuse adds one |
 
 ## Quality and behaviour
 
@@ -44,6 +46,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | **Semantic ranker quota:** the Free plan allows 1,000 semantic queries a month, roughly 50–200 reports | Medium | Automatic fallback to hybrid (recall 0.95), recorded per query | The Standard semantic plan (billed per 1,000 queries) for real usage |
 | The critic is rarely fully satisfied, so two passes (and two approvals) are common | Low | The loop is capped at 2; the cost is bounded | Phase 3 evals: decide whether the second pass pays off |
 | The compact brief sometimes leaves out filing references; the safety net adds them back | Low | The writer still sees every reference and cites correctly | Tune the compact prompt; measure with evals |
+| **The model occasionally shortens long reference ids** (`amzn-332` for `amzn-annual-report-10k-332`): in the eval those citations count as invalid (the smoke gate failed once in three runs on Day 16, once in four on Day 13); in the graph they are dropped | Medium | Intermittent; grounding drops them rather than trusting them | Short per-prompt labels (`[E1]`, `[E2]` …) mapped back to chunk ids in Python |
 | The writer occasionally still adds a section saying news is unavailable | Low | `data_gaps` records it reliably anyway | Prompt tuning |
 | News search is by company name only: results are broad, not topic-specific | Low | News is supplementary | Also call `get_market_context(plan.subject)` |
 | The same citation can appear twice in a section | Low | The Markdown numbering removes duplicates | Remove duplicates when citations are filled in |
@@ -70,7 +73,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | p95 on small samples is nearest-rank: with 5 smoke questions it is the maximum, with 30 the second-highest | Low | A standard definition; the benchmark reports medians too | Print n next to percentiles |
 | q030's ground truth ("the filing does not mention China") hasn't been checked against the full PDF | Low | No retrieved chunk mentions it; unanswerable items were searched when written | Check by hand |
 | Faithfulness is also computed for declined answerable questions, where it is less meaningful | Low | False abstention is reported separately | Exclude declined answers from answer metrics |
-| Cost per query uses list prices and an estimated embedding token count (characters ÷ 4) | Low | Embedding cost is negligible; prices are in `evals/pricing.yaml` | Day 16: reconcile against Langfuse |
+| Cost per query uses list prices and an estimated embedding token count (characters ÷ 4) | Low | Reconciled with Langfuse on Day 16: identical to the sixth decimal | Use the embeddings call's real usage |
 
 ## Data, platform and capacity
 
@@ -108,3 +111,4 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The UI's role dropdown was a simulation; approvals recorded `reviewer: null` | Day 15 | Roles from the token; the reviewer's identity on each decision and in the archive; submitters can't approve (D-62, D-67) |
 | No classifier screen for injected instructions in news | Day 15 | Classifier + Azure Prompt Shields, fail closed (D-66, ADR 0004) |
 | No audit table | Day 15 | Append-only `audit_events` (D-65) |
+| No `/metrics`, tracing or dashboards | Day 16 | Langfuse trace per job; Prometheus `/metrics` (D-68 to D-71) |

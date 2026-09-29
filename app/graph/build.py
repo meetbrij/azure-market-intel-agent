@@ -40,6 +40,14 @@ from app.graph.nodes import (
 from app.graph.state import ResearchState
 from app.graph.tools import NewsToolRunner
 from app.logging_setup import configure_logging
+from app.observability import (
+    get_langfuse,
+    init_tracing,
+    job_trace,
+    record_outcome,
+    shutdown_tracing,
+    trace_id_for,
+)
 
 
 def build_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph[Any]:
@@ -124,16 +132,22 @@ def _ask_approval(payload: dict[str, Any], auto: bool) -> dict[str, Any]:
 
 async def _run(query: str, companies: list[str], auto_approve: bool) -> None:
     graph = build_graph(InMemorySaver())
-    config = thread_config(str(uuid.uuid4()))
+    run_id = str(uuid.uuid4())
+    config = thread_config(run_id)
     news = NewsToolRunner()
     await news.start()
     pending: Any = ResearchState(query=query, companies=companies)
+    s = get_settings()
+    tags = ["cli", f"variant:{s.retrieval_mode}", f"model:{s.azure_openai_chat_model}"]
     try:
         while True:
-            async for update in graph.astream(pending, config, stream_mode="updates"):
-                for node, change in update.items():
-                    if node != "__interrupt__":
-                        print(f">> {node}: {_describe(node, change)}", flush=True)
+            segment = "start" if isinstance(pending, ResearchState) else "resume"
+            with job_trace(run_id, segment=segment, tags=tags) as callbacks:
+                traced = RunnableConfig(**config, callbacks=callbacks)
+                async for update in graph.astream(pending, traced, stream_mode="updates"):
+                    for node, change in update.items():
+                        if node != "__interrupt__":
+                            print(f">> {node}: {_describe(node, change)}", flush=True)
             snapshot = await graph.aget_state(config)
             if not snapshot.interrupts:
                 break
@@ -143,6 +157,10 @@ async def _run(query: str, companies: list[str], auto_approve: bool) -> None:
         await news.stop()
         await close_async_clients()
     state = ResearchState.model_validate(snapshot.values)
+    if get_langfuse() is not None:
+        record_outcome(run_id, "completed" if state.report else "failed", {})
+        print(f"\n== Langfuse trace id: {trace_id_for(run_id)}")
+        shutdown_tracing()
     print(f"\n== loops={state.loop_count} degraded={state.degraded}")
     if state.report is None:
         raise SystemExit(f"No report produced: {state.error}")
@@ -156,6 +174,7 @@ def main() -> None:
     parser.add_argument("--yes", action="store_true", help="auto-approve the plan")
     args = parser.parse_args()
     configure_logging()
+    init_tracing()  # traced if the Langfuse keys are in Key Vault
     asyncio.run(_run(args.query, args.companies, args.yes))
 
 

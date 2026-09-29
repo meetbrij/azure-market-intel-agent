@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from langgraph.graph.state import CompiledStateGraph
 
 from app.api.auth import Analyst, Approver, Authenticated, Principal
+from app.api.metrics import render_metrics
 from app.api.schemas import (
     Companies,
     Health,
@@ -300,6 +301,13 @@ async def _unclaim(job_id: str) -> None:
     await store.transition(
         job_id, from_status=JobStatus.QUEUED, to_status=JobStatus.AWAITING_APPROVAL
     )
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape target: request latency per route and jobs by
+    status. Open like /health (no job content, only counts and timings)."""
+    return await render_metrics()
 
 
 @router.get("/health", response_model=Health)

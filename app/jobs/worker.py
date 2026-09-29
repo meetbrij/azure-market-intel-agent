@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 
 from arq.connections import ArqRedis, RedisSettings
 from arq.constants import in_progress_key_prefix, result_key_prefix
+from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeCancelledError
 from langgraph.types import Command
 
@@ -28,6 +29,7 @@ from app.graph.tools import NewsToolRunner
 from app.jobs import store
 from app.jobs.models import JobStatus
 from app.logging_setup import configure_logging
+from app.observability import init_tracing, job_trace, record_outcome, shutdown_tracing
 from app.reports import archive
 
 log = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ async def run_research(
     snapshot = await graph.aget_state(config)
     started = bool(snapshot.values)
     pending: Any
+    segment = "continue"  # recovery after a crash: carry on from the checkpoint
     if resume is not None:
         waiting = snapshot.interrupts[0].value.get("pass") if snapshot.interrupts else None
         if job.status != JobStatus.QUEUED or waiting is None or resume.get("pass") != waiting:
@@ -68,6 +71,7 @@ async def run_research(
             )
             return
         pending = Command(resume=resume)
+        segment = f"resume:pass{waiting}"
         log.info("Job %s resuming after approval: %s", job_id, resume)
         await _archive_best_effort(
             "approval",
@@ -75,6 +79,7 @@ async def run_research(
         )
     elif not started:
         pending = ResearchState(query=job.query, companies=job.companies)
+        segment = "start"
         log.info("Job %s starting: %r companies=%s", job_id, job.query, job.companies)
     elif snapshot.interrupts:
         # Paused at the gate (e.g. picked up by crash recovery): wait for a human.
@@ -89,16 +94,29 @@ async def run_research(
         )
 
     await store.update_job(job_id, status=JobStatus.RUNNING)
+    s = get_settings()
     try:
         if pending is not None or snapshot.next:
-            async for update in graph.astream(pending, config, stream_mode="updates"):
-                for node, change in update.items():
-                    if node != INTERRUPT_KEY:
-                        plan = (change or {}).get("plan") if node == "plan" else None
-                        await store.record_progress(
-                            job_id, node, subject=plan.subject if plan else None
-                        )
-                        await _audit_node(job_id, node, change or {})
+            with job_trace(
+                job_id,
+                segment=segment,
+                user_id=job.submitted_by,
+                tags=[
+                    f"variant:{s.retrieval_mode}",
+                    f"model:{s.azure_openai_chat_model}",
+                ],
+            ) as callbacks:
+                traced = RunnableConfig(**config, callbacks=callbacks)
+                async for update in graph.astream(
+                    pending, traced, stream_mode="updates"
+                ):
+                    for node, change in update.items():
+                        if node != INTERRUPT_KEY:
+                            plan = (change or {}).get("plan") if node == "plan" else None
+                            await store.record_progress(
+                                job_id, node, subject=plan.subject if plan else None
+                            )
+                            await _audit_node(job_id, node, change or {})
         snapshot = await graph.aget_state(config)
         if snapshot.interrupts:
             await _await_approval(job_id, snapshot.interrupts[0].value)
@@ -118,6 +136,7 @@ async def run_research(
             job_id, status=JobStatus.FAILED, error=f"{type(e).__name__}: {e}"
         )
         await _audit_best_effort("job_failed", job_id, {"error": type(e).__name__})
+        record_outcome(job_id, "failed", {"error": type(e).__name__})
         return
     prefix = await _archive_best_effort("report", archive.archive_report(job, state))
     if prefix:
@@ -126,6 +145,7 @@ async def run_research(
         job_id, status=JobStatus.COMPLETED, result=state.report.model_dump(mode="json")
     )
     await _audit_best_effort("job_completed", job_id, {"archive_prefix": prefix})
+    record_outcome(job_id, "completed", {"archive_prefix": prefix})
     log.info("Job %s completed", job_id)
 
 
@@ -198,6 +218,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     logging.getLogger("arq").propagate = False  # arq has its own handler
     stack = AsyncExitStack()
     ctx["stack"] = stack
+    await asyncio.to_thread(init_tracing)  # reads keys from Key Vault; off if absent
     checkpointer = await stack.enter_async_context(postgres_checkpointer())
     ctx["graph"] = build_graph(checkpointer)
     await _archive_best_effort("container setup", archive.ensure_container())
@@ -214,6 +235,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
         await ctx["stack"].aclose()
     await close_async_clients()
     await store.dispose_engine()
+    await asyncio.to_thread(shutdown_tracing)  # flush buffered spans
 
 
 class WorkerSettings:

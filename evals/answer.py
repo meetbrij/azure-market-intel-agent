@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.graph.llm import parse_structured, recording_calls
 from app.graph.nodes import normalize_reference
 from app.graph.retrieval import Mode, search_many
+from app.observability import eval_trace
 from evals.golden import GoldenItem
 
 ANSWER_SYSTEM = """\
@@ -69,7 +70,14 @@ def format_context(hits: list[dict[str, Any]]) -> str:
     )
 
 
-async def answer_item(item: GoldenItem, k: int, mode: Mode) -> Sample:
+async def answer_item(
+    item: GoldenItem, k: int, mode: Mode, run: str = "untraced"
+) -> Sample:
+    with eval_trace(run, item.id, mode):
+        return await _answer_item(item, k, mode)
+
+
+async def _answer_item(item: GoldenItem, k: int, mode: Mode) -> Sample:
     t0 = time.perf_counter()
     hits = await search_many([item.question], item.companies, k=k, mode=mode)
     t1 = time.perf_counter()

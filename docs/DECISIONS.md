@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 15, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 16, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -84,8 +84,13 @@ day's definition of done.
 | D-65 | 15 | Governance | Append-only `audit_events`; a person's action needs its audit record |
 | D-66 | 15 | Security | News is screened for injection before any prompt; fails closed |
 | D-67 | 15 | UI | The UI shows identity and roles from the API and hides what it would refuse |
+| D-68 | 16 | Observability | One Langfuse trace per job; trace id = job id; keys in Key Vault; optional |
+| D-69 | 16 | Observability | Callback handler for nodes and tools; explicit spans for model calls and searches |
+| D-70 | 16 | Observability | Langfuse prices calls from model names; we never compute cost for tracing |
+| D-71 | 16 | Observability | Prometheus `/metrics` for request latency and jobs by status |
+| D-72 | 16 | Evaluation | Eval runs can be traced; `evals.reconcile` checks cost against Langfuse |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-18](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-20](#found-in-live-testing).
 
 ---
 
@@ -881,6 +886,78 @@ in the limitations.
 
 ---
 
+## Observability (Day 16)
+
+### D-68 · One Langfuse trace per job; trace id = job id; keys in Key Vault; optional · Day 16
+- **Decision:**
+  - **Trace id:** the job id without dashes, so the job, its audit rows and
+    its trace share one id.
+  - **Runs:** each worker run (start, resume, continue after a crash) is a
+    `job:*` span in the same trace.
+  - **Trace attributes:** user is the submitter's `oid`, session is the job
+    id, and tags carry the variant, model and outcome.
+  - **Keys** are read from Key Vault at worker startup. If they're missing,
+    or `TRACING_ENABLED=false`, jobs run untraced.
+- **Why:** the spec asks for `job_id` as the trace id. Keeping the whole job,
+  approval waits included, in one trace makes "cost per report" a single
+  number. And observability must never be a new way for a job to fail.
+- **Status:** Active.
+
+### D-69 · Callback handler for nodes and tools; explicit spans for model calls and searches · Day 16
+- **Context:**
+  - The spec says to use the LangChain callback handler. It sees LangGraph
+    nodes and the MCP tool.
+  - It can't see our model calls: we call the OpenAI and Search SDKs
+    directly, for structured outputs and our own retry and fallback layer.
+- **Decision:**
+  - `observe()` adds explicit observations: a `generation` per chat call, an
+    `embedding`, and a `retriever` per search.
+  - LangGraph runs a node in a task that can't see the handler's current
+    span, so these are parented explicitly to the node's span, found through
+    the node's callback manager.
+  - That lookup relies on the handler's internal run map;
+    `tests/test_observability.py` pins the nesting, so an SDK upgrade that
+    breaks it fails a test.
+- **Alternative rejected:** switching to LangChain chat models just to be
+  traced. That would replace working, tested code for a tracing convenience.
+- **Status:** Active.
+
+### D-70 · Langfuse prices calls from model names; we never compute cost for tracing · Day 16
+- **Decision:**
+  - Generations report the model name (`AZURE_OPENAI_CHAT_MODEL`, default
+    `gpt-5-mini`) and raw token usage. Langfuse applies its own price table.
+  - The deployment name is kept in metadata.
+- **Why:** Langfuse's cost and the eval harness's (evals/pricing.yaml) are
+  then independent calculations, which is what makes reconciling them
+  meaningful (D-72).
+- **Status:** Active.
+
+### D-71 · Prometheus `/metrics` for request latency and jobs by status · Day 16
+- **Decision:**
+  - A middleware records `http_request_duration_seconds` by method, route
+    template and status.
+  - `research_jobs{status}` is read from the database at scrape time.
+  - Each non-probe request is logged in one line.
+  - `/metrics` is open like `/health`: counts and timings only, no job
+    content.
+- **Why:** it's the spec's "/metrics or structured logs" option, in a format
+  the Day 17 Kubernetes setup can scrape. Tracing covers per-job detail, and
+  metrics cover the service.
+- **Status:** Active.
+
+### D-72 · Eval runs can be traced; `evals.reconcile` checks cost against Langfuse · Day 16
+- **Decision:**
+  - `evals.run --trace` makes one trace per question, with session set to
+    the run name.
+  - `evals.reconcile` fetches each trace's cost through the v2 observations
+    API. New Langfuse Cloud organisations can't use the legacy traces API.
+  - It compares against the harness and fails if the two differ by more
+    than 5%.
+- **Result:** the smoke set matched exactly ($0.007859 on both sides).
+- **Status:** Active.
+
+---
+
 ## Found in live testing
 
 Bugs that only appeared in real runs, never in unit tests, and the fix each
@@ -906,6 +983,8 @@ one led to.
 | F-16 | 14 | The fallback metric counted a plain-hybrid run as 30 "semantic fallbacks" | Count fallbacks only for `hybrid_semantic` runs (D-48); stored results recomputed |
 | F-17 | 15 | Azure Prompt Shields refused the whole screening batch (400 `content_filter`) because one item was a jailbreak, which would have dropped all news. Before Day 15, such a snippet reaching `compact` or `write` would have failed the job. | Treat the refusal as a flag: screen item by item (D-66, ADR 0004) |
 | F-18 | 15 | Device code sign-in was refused with AADSTS530035: the tenant's security defaults block that flow | D-64: auth code + PKCE with localhost redirects; security defaults stay on |
+| F-19 | 16 | Langfuse's legacy `GET /traces/{id}` returns 410 for organisations created after 2026-09-16 | Read through `/v2/observations` (D-72) |
+| F-20 | 16 | The smoke gate failed once on citation validity (0.75): the model shortened long reference ids (`amzn-332` for `amzn-annual-report-10k-332`); two re-runs scored 1.0 | Recorded as a limitation; proposed fix: short per-prompt reference labels mapped back in Python |
 
 ---
 

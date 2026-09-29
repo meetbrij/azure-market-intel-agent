@@ -12,6 +12,7 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI
 
 from app.api.auth import check_auth_config
+from app.api.metrics import time_requests
 from app.api.routes import router
 from app.azure_clients import close_async_clients
 from app.config import get_settings
@@ -54,3 +55,4 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.middleware("http")(time_requests)

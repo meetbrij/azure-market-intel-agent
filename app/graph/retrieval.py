@@ -10,6 +10,7 @@ from azure.search.documents.models import VectorizedQuery
 
 from app.azure_clients import get_async_aoai, get_async_search_client
 from app.config import get_settings
+from app.observability import observe
 from app.resilience import with_retries
 
 log = logging.getLogger(__name__)
@@ -30,12 +31,21 @@ _companies: list[str] | None = None
 
 
 async def embed_queries(texts: list[str]) -> list[list[float]]:
-    resp = await with_retries(
-        "embed",
-        lambda: get_async_aoai().embeddings.create(
-            model=get_settings().azure_openai_embed_deployment, input=texts
-        ),
-    )
+    s = get_settings()
+    with observe(
+        "embed", "embedding", model=s.azure_openai_embed_model, input=texts
+    ) as span:
+        resp = await with_retries(
+            "embed",
+            lambda: get_async_aoai().embeddings.create(
+                model=s.azure_openai_embed_deployment, input=texts
+            ),
+        )
+        if span is not None:
+            span.update(
+                usage_details={"input": resp.usage.prompt_tokens},
+                metadata={"deployment": s.azure_openai_embed_deployment},
+            )
     return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
 
 
@@ -137,7 +147,7 @@ async def search_many(
     scopes = [[c] for c in companies] if len(companies) > 1 else [companies]
     batches = await asyncio.gather(
         *(
-            _search(q, v, scope, k, mode)
+            _traced_search(q, v, scope, k, mode)
             for q, v in zip(queries, vectors, strict=True)
             for scope in scopes
         )
@@ -147,6 +157,26 @@ async def search_many(
         if hit["id"] not in best or hit["score"] > best[hit["id"]]["score"]:
             best[hit["id"]] = hit
     return sorted(best.values(), key=lambda h: h["score"], reverse=True)
+
+
+async def _traced_search(
+    query: str, vector: list[float], companies: list[str], k: int, mode: Mode
+) -> list[dict[str, Any]]:
+    """_search, as a Langfuse retriever span: the mode asked for and the mode
+    that ran (they differ when the semantic ranker falls back)."""
+    with observe(
+        "search",
+        "retriever",
+        input=query,
+        metadata={"mode_requested": mode, "companies": companies, "k": k},
+    ) as span:
+        hits = await _search(query, vector, companies, k, mode)
+        if span is not None:
+            span.update(
+                output=[{"id": h["id"], "score": h["score"]} for h in hits],
+                metadata={"mode_used": hits[0]["retrieval_mode"] if hits else None},
+            )
+    return hits
 
 
 async def search(query: str, companies: list[str], k: int = 8) -> list[dict[str, Any]]:

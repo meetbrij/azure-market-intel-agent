@@ -1,6 +1,6 @@
 """Retrieval evaluation harness.
 
-    uv run python -m evals.run [--smoke] [--variant vector] [--name NAME] [--out results/]
+    uv run python -m evals.run [--smoke] [--variant vector] [--name NAME] [--out results/] [--trace]
 
 For each golden question: retrieve, answer once from those chunks, then score
 with RAGAS (context precision/recall, faithfulness, answer relevancy) in the
@@ -10,6 +10,9 @@ Python. Writes <out>/<name>.json and <name>.md.
 --smoke runs the 5 questions in evals/thresholds.yaml, scores faithfulness
 only (to keep CI cheap), and exits 1 if faithfulness or citation validity is
 below its threshold.
+
+--trace sends one Langfuse trace per question (session = the run name), so
+evals/reconcile.py can check Langfuse's cost against this harness's.
 """
 
 import argparse
@@ -27,6 +30,7 @@ from app.azure_clients import close_async_clients
 from app.config import get_settings
 from app.graph.retrieval import Mode, search_many
 from app.logging_setup import configure_logging
+from app.observability import init_tracing, shutdown_tracing
 from evals.answer import Sample, answer_item
 from evals.golden import EVALS_DIR, load_golden, load_pricing, load_thresholds
 from evals.metrics import RAGAS_METRICS, gate, summarize
@@ -36,7 +40,7 @@ VARIANTS = ["vector", "hybrid", "hybrid_semantic"]
 
 
 async def generate(
-    items: list[Any], k: int, concurrency: int, mode: Mode
+    items: list[Any], k: int, concurrency: int, mode: Mode, run: str = "untraced"
 ) -> list[Sample]:
     # Warm up first: the first call waits for an Entra token (seconds with the
     # Azure CLI credential), which would otherwise land in retrieval latency.
@@ -45,7 +49,7 @@ async def generate(
 
     async def one(item: Any) -> Sample:
         async with gate:
-            sample = await answer_item(item, k, mode)
+            sample = await answer_item(item, k, mode, run)
             flag = (
                 "abstained" if sample.abstained else f"{len(sample.citations)} cite(s)"
             )
@@ -232,6 +236,9 @@ def main() -> int:
     )
     parser.add_argument("--out", type=Path, default=ROOT / "results")
     parser.add_argument(
+        "--trace", action="store_true", help="trace each question in Langfuse"
+    )
+    parser.add_argument(
         "--judge-model",
         default=os.environ.get("EVAL_JUDGE_MODEL", "gpt-5-mini"),
         help="model family behind the chat deployment (RAGAS maps reasoning-model params by name)",
@@ -247,11 +254,21 @@ def main() -> int:
         items = [i for i in items if i.id in set(thresholds.smoke_ids)]
     metrics = ["faithfulness"] if args.smoke else RAGAS_METRICS
     started = datetime.now(UTC)
+    name = (
+        args.name
+        or f"{'smoke' if args.smoke else args.variant}-{started:%Y%m%dT%H%M%SZ}"
+    )
+    traced = bool(args.trace and init_tracing())
+    if args.trace and not traced:
+        print("Tracing requested but Langfuse is unavailable; continuing", file=sys.stderr)
     print(
         f"Answering {len(items)} question(s) [{args.variant}, top-{args.top_k}]...",
         file=sys.stderr,
     )
-    samples = asyncio.run(generate(items, args.top_k, args.concurrency, args.variant))
+    samples = asyncio.run(
+        generate(items, args.top_k, args.concurrency, args.variant, name)
+    )
+    shutdown_tracing()  # flush before scoring: RAGAS calls aren't traced
     print(f"Scoring with RAGAS ({', '.join(metrics)})...", file=sys.stderr)
     scored = score_with_ragas(samples, metrics, args.judge_model)
     ragas_errors, ragas_meta = scored.pop("_errors", {}), scored.pop("_meta", {})
@@ -259,10 +276,6 @@ def main() -> int:
         samples, {i.id: i for i in items}, scored, load_pricing(), args.variant
     )
 
-    name = (
-        args.name
-        or f"{'smoke' if args.smoke else args.variant}-{started:%Y%m%dT%H%M%SZ}"
-    )
     run = {
         "meta": {
             "name": name,
@@ -279,6 +292,7 @@ def main() -> int:
             "ragas_version": ragas_meta.get("ragas_version"),
             "metrics": metrics,
             "smoke": args.smoke,
+            "langfuse_session": name if traced else None,
             "pricing": load_pricing(),
         },
         "summary": summary,

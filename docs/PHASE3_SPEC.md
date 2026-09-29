@@ -215,6 +215,20 @@ Then run the eval smoke set once with tracing on and confirm cost per query in
 Langfuse matches what your eval harness computed. Reconciling the two is a good
 check that neither is lying.
 
+> **As built (Day 16):**
+> - **Keys:** in Key Vault; tracing is off without them.
+> - **Handler plus explicit spans:** the LangChain callback handler traces
+>   nodes and tools. Model calls, embeddings and searches are explicit
+>   Langfuse observations, because we call the OpenAI and Search SDKs
+>   directly, not through LangChain models. They're parented to their node's
+>   span.
+> - **Metrics:** request latency is a Prometheus histogram at `/metrics`,
+>   next to jobs by status.
+> - **Langfuse API:** new Langfuse Cloud organisations must read through the
+>   v2 observations API; `evals/reconcile.py` uses it.
+> - **Reconciliation:** exact to $0.000001 over the smoke set
+>   (docs/observability.md).
+
 ---
 
 ## Day 17 — Containers and Kubernetes

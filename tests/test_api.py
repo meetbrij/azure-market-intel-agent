@@ -161,3 +161,22 @@ async def test_resume_enqueue_failure_keeps_job_paused(
     assert resp.status_code == 503
     job = await store.get_job(job_id)
     assert job is not None and job.status == JobStatus.AWAITING_APPROVAL
+
+
+async def test_metrics_report_route_latency_and_jobs_by_status(
+    client: AsyncClient,
+) -> None:
+    job_id = await paused_job()
+    await client.get(f"/api/v1/research/{job_id}")
+    await client.get("/api/v1/research/does-not-exist")
+
+    resp = await client.get("/metrics")
+
+    assert resp.status_code == 200
+    text = resp.text
+    # Labelled by route template, never by the raw path with its job id.
+    assert 'route="/api/v1/research/{job_id}",status="200"' in text
+    assert 'route="/api/v1/research/{job_id}",status="404"' in text
+    assert job_id not in text
+    assert 'research_jobs{status="awaiting_approval"} 1.0' in text
+    assert 'research_jobs{status="failed"} 0.0' in text

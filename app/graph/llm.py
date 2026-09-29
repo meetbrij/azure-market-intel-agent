@@ -18,6 +18,7 @@ import openai
 from app.azure_clients import get_async_aoai
 from app.config import get_settings
 from app.graph.state import LlmCall
+from app.observability import chat_model_name, observe
 from app.resilience import with_retries
 
 log = logging.getLogger(__name__)
@@ -56,30 +57,66 @@ def _falls_back(exc: BaseException) -> bool:
     )
 
 
-async def _chat[T](label: str, call: Callable[[str], Awaitable[T]]) -> T:
-    """Run `call(deployment)` on the primary, then the fallback if warranted."""
+async def _chat[T](
+    label: str, call: Callable[[str], Awaitable[T]], messages: list[dict[str, str]]
+) -> T:
+    """Run `call(deployment)` on the primary, then the fallback if warranted.
+    Traced as one Langfuse generation (under the current node's span)."""
     s = get_settings()
     primary, fallback = (
         s.azure_openai_chat_deployment,
         s.azure_openai_chat_fallback_deployment,
     )
-    try:
-        result = await with_retries(label, lambda: call(primary))
-        deployment = primary
-    except Exception as e:
-        if not fallback or not _falls_back(e):
+    with observe(
+        label, "generation", model=chat_model_name(primary), input=messages
+    ) as generation:
+        try:
+            try:
+                result = await with_retries(label, lambda: call(primary))
+                deployment = primary
+            except Exception as e:
+                if not fallback or not _falls_back(e):
+                    raise
+                log.warning(
+                    "%s: %s still failing after retries (%s); falling back to %s",
+                    label,
+                    primary,
+                    type(e).__name__,
+                    fallback,
+                )
+                result = await with_retries(
+                    f"{label} (fallback)", lambda: call(fallback)
+                )
+                deployment = fallback
+        except Exception as e:
+            if generation is not None:
+                generation.update(level="ERROR", status_message=type(e).__name__)
             raise
-        log.warning(
-            "%s: %s still failing after retries (%s); falling back to %s",
-            label,
-            primary,
-            type(e).__name__,
-            fallback,
-        )
-        result = await with_retries(f"{label} (fallback)", lambda: call(fallback))
-        deployment = fallback
-    _log_served(label, deployment, getattr(result, "usage", None))
+        usage = getattr(result, "usage", None)
+        _log_served(label, deployment, usage)
+        if generation is not None:
+            generation.update(
+                model=chat_model_name(deployment),
+                output=_output_text(result),
+                usage_details=_usage_details(usage),
+                metadata={"deployment": deployment},
+            )
     return result
+
+
+def _usage_details(usage: object) -> dict[str, int]:
+    details = {
+        "input": getattr(usage, "prompt_tokens", None),
+        "output": getattr(usage, "completion_tokens", None),
+    }
+    return {k: v for k, v in details.items() if isinstance(v, int)}
+
+
+def _output_text(result: object) -> str | None:
+    try:
+        return str(result.choices[0].message.content)  # type: ignore[attr-defined]
+    except (AttributeError, IndexError):
+        return None
 
 
 async def parse_structured[T](label: str, system: str, user: str, schema: type[T]) -> T:
@@ -93,7 +130,7 @@ async def parse_structured[T](label: str, system: str, user: str, schema: type[T
             response_format=schema,
         )
 
-    completion = await _chat(label, call)
+    completion = await _chat(label, call, _messages(system, user))
     message = completion.choices[0].message
     if message.refusal:
         raise RuntimeError(f"{label}: model refused: {message.refusal}")
@@ -110,7 +147,7 @@ async def complete_text(label: str, system: str, user: str) -> str:
             messages=_messages(system, user),  # type: ignore[arg-type]
         )
 
-    completion = await _chat(label, call)
+    completion = await _chat(label, call, _messages(system, user))
     text = completion.choices[0].message.content
     if not text:
         raise RuntimeError(f"{label}: model returned no text")
