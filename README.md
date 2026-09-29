@@ -572,7 +572,20 @@ Live (demo; may be scaled down between uses):
 ```bash
 infra/azure/deploy.sh --what-if     # preview; creates nothing
 infra/azure/deploy.sh               # base → images → Postgres role → apps
+
+infra/azure/power.sh status         # what's running; is the API healthy
+infra/azure/power.sh down           # pause: stop Postgres, scale worker + Redis to zero
+infra/azure/power.sh up             # resume, and wait until the API is healthy
+
+infra/azure/destroy.sh --dry-run    # list what would be deleted
+infra/azure/destroy.sh              # delete the deployment (asks you to confirm)
 ```
+
+`power.sh down` keeps everything and saves most of the cost. Azure restarts
+a stopped Postgres server after 7 days, so run it again if needed.
+`destroy.sh` removes only what `deploy.sh` created. It keeps the Day 1
+resources: OpenAI, the Search index, the filings and report archive, and
+Key Vault. So `deploy.sh` can bring the whole thing back.
 
 - **Five container apps:** api and ui are public over HTTPS; news uses
   internal HTTP; Redis internal TCP; the worker has no ingress and runs
