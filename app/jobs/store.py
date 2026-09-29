@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import get_settings
+from app.db_auth import entra_enabled, pg_token
 from app.jobs.models import AuditEvent, Base, Job, JobStatus, utcnow
 
 SYSTEM = "system"  # audit actor for the worker's own events
@@ -19,7 +20,13 @@ SYSTEM = "system"  # audit actor for the worker's own events
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    return create_async_engine(get_settings().database_url, pool_pre_ping=True)
+    connect_args: dict[str, Any] = {}
+    if entra_enabled():
+        # Keyless: asyncpg awaits this per connection (a fresh Entra token).
+        connect_args["password"] = pg_token
+    return create_async_engine(
+        get_settings().database_url, pool_pre_ping=True, connect_args=connect_args
+    )
 
 
 @lru_cache

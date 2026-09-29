@@ -21,8 +21,9 @@ set -euo pipefail
 
 API_NAME="${API_NAME:-mia-api}"
 UI_NAME="${UI_NAME:-mia-ui}"
-# Streamlit's address, plus bare localhost (any port) for scripts/get_token.py.
-UI_REDIRECTS="${UI_REDIRECTS:-http://localhost:8501 http://localhost}"
+# Streamlit locally, bare localhost (any port) for scripts/get_token.py, and
+# the deployed UI (Azure Container Apps, ADR 0006).
+UI_REDIRECTS="${UI_REDIRECTS:-http://localhost:8501 http://localhost https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io}"
 # Fixed ids, so re-running updates the same scope and roles instead of adding.
 SCOPE_ID="da870bca-c69c-49e4-a7dc-b95a7d1d058d"
 ANALYST_ROLE_ID="d83ca84c-21b3-40b6-a0c8-8dd492819c36"

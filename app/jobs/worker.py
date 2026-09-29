@@ -22,6 +22,7 @@ from langgraph.types import Command
 
 from app.azure_clients import close_async_clients
 from app.config import get_settings
+from app.db_auth import close_credential
 from app.graph.build import build_graph, thread_config
 from app.graph.checkpoint import postgres_checkpointer
 from app.graph.state import ResearchState
@@ -236,6 +237,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
         await ctx["stack"].aclose()
     await close_async_clients()
     await store.dispose_engine()
+    await close_credential()
     await asyncio.to_thread(shutdown_tracing)  # flush buffered spans
 
 

@@ -1,11 +1,133 @@
+# CI/CD (Day 18): test -> eval gate -> build -> deploy.
+#
+# Auth: an Azure Resource Manager service connection with workload identity
+# federation (no secret anywhere). Its identity needs, on rg-mia-dev:
+#   Contributor                         (build in ACR, update container apps)
+#   Cognitive Services OpenAI User      (eval gate: answers + RAGAS judge)
+#   Search Index Data Reader            (eval gate: retrieval)
+# Every value below is a non-secret endpoint, name or id.
+
 trigger:
   branches:
-    include:
-      - main
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+variables:
+  serviceConnection: mia-azure            # the ARM service connection's name
+  resourceGroup: rg-mia-dev
+  acrName: acrmiadevbb01
+  imageTag: $(Build.BuildId)
+  UV_VERSION: 0.12.20
+  # For the eval gate (evals/run.py reads these like the app does).
+  AZURE_OPENAI_ENDPOINT: https://aif-mia-dev-bb01.cognitiveservices.azure.com/
+  AZURE_OPENAI_API_VERSION: 2025-04-01-preview
+  AZURE_OPENAI_CHAT_DEPLOYMENT: chat-mini
+  AZURE_OPENAI_EMBED_DEPLOYMENT: text-embedding-3-small
+  AZURE_SEARCH_ENDPOINT: https://srch-mia-dev-bb01.search.windows.net
+  AZURE_KEYVAULT_URL: https://kv-mia-dev-bb01.vault.azure.net/
+  AZURE_STORAGE_ACCOUNT_URL: https://stmiadevbb01.blob.core.windows.net
+  TRACING_ENABLED: "false"
 
 pool:
   vmImage: ubuntu-latest
 
-steps:
-  - script: echo "Pipeline placeholder — CI stages added in Phase 4"
-    displayName: Placeholder
+stages:
+  - stage: Test
+    jobs:
+      - job: lint_type_test
+        displayName: ruff, mypy, pytest
+        steps:
+          - script: |
+              curl -LsSf https://astral.sh/uv/$(UV_VERSION)/install.sh | sh
+              echo "##vso[task.prependpath]$HOME/.local/bin"
+            displayName: Install uv
+          - script: uv sync --frozen
+            displayName: Install dependencies
+          - script: uv run ruff check app ingestion mcp_news tests ui evals
+            displayName: ruff
+          - script: |
+              uv run mypy app ingestion mcp_news tests evals --ignore-missing-imports
+              uv run --group ui mypy ui --ignore-missing-imports
+            displayName: mypy
+          - script: uv run pytest -q
+            displayName: pytest (offline)
+
+  - stage: EvalGate
+    displayName: Eval gate (5 questions, real models)
+    dependsOn: Test
+    jobs:
+      - job: smoke
+        steps:
+          - script: |
+              curl -LsSf https://astral.sh/uv/$(UV_VERSION)/install.sh | sh
+              echo "##vso[task.prependpath]$HOME/.local/bin"
+            displayName: Install uv
+          - script: |
+              uv sync --frozen
+              uv sync --frozen --project evals/ragas
+            displayName: Install dependencies (app + isolated RAGAS env)
+          - task: AzureCLI@2
+            displayName: evals.run --smoke (fails below evals/thresholds.yaml)
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              # DefaultAzureCredential uses this task's az login (keyless).
+              inlineScript: uv run python -m evals.run --smoke --name ci-$(Build.BuildId)
+          - publish: results
+            artifact: eval-results
+            condition: always()
+
+  - stage: Build
+    dependsOn: EvalGate
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: images
+        displayName: Build and push (linux/amd64)
+        steps:
+          # Built on the agent (amd64) and pushed: ACR Tasks (`az acr build`)
+          # is blocked on this subscription (DECISIONS F-22).
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                az acr login -n $(acrName)
+                registry=$(acrName).azurecr.io
+                docker build --target runtime -f Dockerfile \
+                  -t $registry/mia:$(imageTag) -t $registry/mia:latest .
+                docker build -f ui/Dockerfile \
+                  -t $registry/mia-ui:$(imageTag) -t $registry/mia-ui:latest .
+                docker push --all-tags $registry/mia
+                docker push --all-tags $registry/mia-ui
+
+  - stage: Deploy
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: container_apps
+        displayName: Roll the container apps to the new image
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                image=$(acrName).azurecr.io/mia:$(imageTag)
+                for app in ca-mia-news ca-mia-worker ca-mia-api; do
+                  az containerapp update -g $(resourceGroup) -n $app --image $image -o none
+                done
+                az containerapp update -g $(resourceGroup) -n ca-mia-ui \
+                  --image $(acrName).azurecr.io/mia-ui:$(imageTag) -o none
+                api=$(az containerapp show -g $(resourceGroup) -n ca-mia-api --query properties.configuration.ingress.fqdn -o tsv)
+                for i in $(seq 1 30); do
+                  curl -fsS "https://$api/health" && exit 0
+                  sleep 10
+                done
+                echo "API not healthy after deploy"; exit 1

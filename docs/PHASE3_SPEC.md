@@ -296,6 +296,20 @@ needs.
 Managed identity role assignments take several minutes to propagate. Expect the
 first deployment to fail with 403s and retry before assuming a misconfiguration.
 
+> **As built (Day 18):**
+> - **Postgres auth:** Entra-only; the apps' managed identity token is the
+>   password, and none exists.
+> - **Identities:** user-assigned, one per app plus a shared database
+>   identity. System-assigned ones can't pull images before their AcrPull
+>   role exists.
+> - **Apps:** the UI is a 4th public app, and Redis is a container app with
+>   internal TCP.
+> - **Tooling:** Bicep, deployed by `infra/azure/deploy.sh`.
+> - **Images:** ACR Tasks is blocked on the subscription, so images are
+>   built with docker and pushed. No 403s were seen on the first deploy: the
+>   roles are created in the first pass.
+> - **Detail:** ADR 0006 and DECISIONS D-78 to D-83.
+
 ### Pipeline (`infra/azure-pipelines.yml`)
 
 Replace the placeholder. Stages:

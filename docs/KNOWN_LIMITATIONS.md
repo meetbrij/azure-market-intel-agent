@@ -1,6 +1,6 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 17. Each
+Trade-offs we accepted on purpose, and gaps we know about, as of Day 18. Each
 entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
@@ -14,12 +14,12 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
 | Report immutability is enforced by the app (`overwrite=False`), not by the storage account | Medium | Enough to show the design; a policy is an infrastructure setting | A container immutability policy (WORM) at deployment |
-| `audit_events` is append-only through the app and a trigger, but the app's database user owns the table and could drop the trigger | Medium | Stops accidental or app-level tampering; the local Postgres has one user | Day 18: a separate, non-owner role for the app; or ship events to an external log store |
+| `audit_events` is append-only through the app and a trigger, but the app's database user owns the table and could drop the trigger | Medium | Stops accidental or app-level tampering; in Azure too, the apps' role (`id-mia-db`) owns the tables | A separate owner role for migrations and a non-owner runtime role; or ship events to an external log store |
 | A token stays valid until it expires (about an hour): removing a role or a user takes effect only at the next token | Low | Standard for bearer tokens; short lifetime | Continuous access evaluation, or a short token lifetime policy |
 | The UI keeps sign-ins in memory: reloading the page (or restarting the UI) means signing in again, and pending sign-ins are per UI process | Low | Tokens never touch disk; one UI container | A server-side session store if the UI is scaled out |
 | The injection screen uses the same model family as the writer, and its false positives drop genuine news | Low | Prompt Shields is an independent second detector; news is supplementary and withheld items are reported | A dedicated classifier; measure precision/recall on a labelled set |
 | Jobs created before Day 15 have no submitter, so only approvers can see them | Low | Old demo data | — |
-| Local containers (Compose and kind) authenticate with your Azure CLI login (mounted `~/.azure`, read-only) | Low | Local development only; the deployable image doesn't include it | Day 18: managed identity |
+| Local containers (Compose and kind) authenticate with your Azure CLI login (mounted `~/.azure`, read-only) | Low | Local development only; Azure uses managed identities (Day 18), and the deployed image has no CLI | — |
 | Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | Clients are now only signed-in users of this tenant | Day 16: a generic message for clients, details in logs and traces |
 | Markdown neutralising misses reference-style links (`[x][1]` plus `[1]: url`) in model prose | Low | Needs a model to produce them; images, inline links and HTML are handled (D-38) | Drop link-definition lines when rendering |
 
@@ -67,7 +67,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The golden set was written by one author, from the filing text | Low | Answers are quoted and page-cited, so they can be checked | A human review pass |
 | The eval gives each question its company filter; the real system's planner picks companies itself | Low | It isolates the retriever, as the spec asks | A full-graph eval variant |
 | "Expected page retrieved" is page-level and overstates hits (a page spans several chunks) | Low | Labelled as such; chunk-level recall comes from RAGAS | Expected-snippet matching |
-| **The smoke gate isn't in CI yet**: `infra/azure-pipelines.yml` is a placeholder | Medium | Run by hand before merging; the spec schedules the pipeline | Day 18: pipeline runs `evals.run --smoke` |
+| The pipeline (eval gate included) can't run until the Azure DevOps service connection exists and Microsoft grants free hosted agents (a 2–3 day request) | Medium | The pipeline is written and wired to `infra/azure-pipelines.yml`; deploys are done with `infra/azure/deploy.sh` meanwhile | The grant, or a self-hosted agent |
 | Abstention is the model's own `abstained` flag; "abstained" with citations or a figure still counts as a correct decline | Low | Seen consistent in every run so far | Flag answers where the flag and the content disagree |
 | p95 on small samples is nearest-rank: with 5 smoke questions it is the maximum, with 30 the second-highest | Low | A standard definition; the benchmark reports medians too | Print n next to percentiles |
 | q030's ground truth ("the filing does not mention China") hasn't been checked against the full PDF | Low | No retrieved chunk mentions it; unanswerable items were searched when written | Check by hand |
@@ -97,6 +97,17 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | No Ingress on kind (no controller); local runs use port-forward | Low | The sign-in redirect is `localhost:8501` anyway; the Ingress template is linted with production values | An ingress controller in the kind setup |
 | The UI must run one replica (a sign-in in progress is held in its process) | Low | Demo client | A shared session store |
 | Egress isn't restricted: pods can reach any external host | Low | They need Azure, Tavily, Langfuse and Entra; FQDN egress rules need a CNI that supports them | FQDN-based egress policy in the real cluster |
+
+## Azure (Container Apps)
+
+| Limitation | Impact | Why accepted | Removed by |
+|---|---|---|---|
+| A worker deploy starts the new revision before stopping the old one, so a deploy during a running job can briefly run two workers (unsafe with D-25's lock release) | Medium | Container Apps has no Recreate strategy; deploys are rare and manual-gated to `main` | Deploy between jobs; or a lease/heartbeat check before recovery releases locks |
+| Postgres is reached over its public endpoint (Entra-only auth, TLS, firewall: Azure services + admin IP), not a private endpoint | Medium | A virtual network and private DNS cost more than the demo warrants | VNet-integrated Container Apps environment + private endpoint |
+| "Allow Azure services" admits any Azure-hosted client to the Postgres firewall (auth still required) | Low | Container Apps' outbound IPs aren't fixed without a VNet | The private endpoint above |
+| The api scales to zero: the first request after idle waits for a cold start (~10–20 s) | Low | Saves cost; the UI keeps polling | `minReplicas: 1` for the api |
+| The worker has no health probe in Azure (Container Apps has no exec probes; it has no port) | Low | The platform restarts it if it exits; a hung loop isn't detected | A tiny HTTP health endpoint in the worker |
+| ACR Tasks (`az acr build`) is blocked on this subscription, so images are built locally (amd64 under emulation, slow) or on the pipeline agent | Low | Works; only slower locally | An Azure support request to enable ACR Tasks |
 
 ## Resolved
 

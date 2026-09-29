@@ -448,6 +448,7 @@ Beyond the Azure endpoints in `.env.example`, all optional:
 | `ENVIRONMENT` | `local` | anything but `local` forbids `DEV_AUTH_BYPASS` |
 | `DEV_AUTH_BYPASS` | `false` | local only: skip token checks; identity from `X-Dev-User` / `X-Dev-Roles` headers |
 | `NEWS_SCREEN_ENABLED` | `true` | screen news for injected instructions before any prompt (fails closed) |
+| `DATABASE_AUTH` / `DATABASE_CLIENT_ID` | `password` / unset | `entra` = keyless Postgres (token per connection, the given managed identity); Azure only |
 | `TRACING_ENABLED` / `LANGFUSE_HOST` | `true` / EU cloud | Langfuse tracing; keys from Key Vault (`langfuse-public-key`, `langfuse-secret-key`); off without them |
 | `AZURE_OPENAI_CHAT_MODEL` / `AZURE_OPENAI_EMBED_MODEL` | `gpt-5-mini` / `text-embedding-3-small` | model names behind the deployments, so Langfuse can price calls |
 
@@ -519,6 +520,34 @@ infra/kind/down.sh          # delete the cluster
   [ADR 0005](docs/adr/0005-kubernetes.md), which also explains why there is
   no AKS: it costs money every month for the same talking point.
 
+## Azure deployment (Container Apps)
+
+Live (demo; may be scaled down between uses):
+
+- UI: <https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io>
+  (sign in with an account that has the `analyst` or `approver` role)
+- API: <https://ca-mia-api.yellowrock-5f661b79.swedencentral.azurecontainerapps.io/health>
+
+```bash
+infra/azure/deploy.sh --what-if     # preview; creates nothing
+infra/azure/deploy.sh               # base → images → Postgres role → apps
+```
+
+- **Five container apps:** api and ui are public over HTTPS; news uses
+  internal HTTP; Redis internal TCP; the worker has no ingress and runs
+  exactly one replica.
+- **PostgreSQL Flexible Server (B1ms)** with **Entra-only auth**: the apps
+  log in with their managed identity's token, and no database password
+  exists.
+- **Identities:** one user-assigned managed identity per app, each with
+  only the roles that app needs.
+- **CI/CD:** `infra/azure-pipelines.yml` runs test, the eval gate, build
+  and deploy, authenticating through workload identity federation.
+- **Budget:** a $50 monthly budget alert.
+
+The topology, identities and trade-offs are in
+[ADR 0006](docs/adr/0006-deployment-topology.md).
+
 ## Azure auth in containers (local only)
 
 The `local` image target adds the Azure CLI. docker-compose (and kind, via the
@@ -552,6 +581,7 @@ infra/helm/, infra/kind/        Helm chart (values.yaml, values-local.yaml); kin
 infra/entra/                    Entra app registrations (setup.sh)
 results/                        committed eval runs (baseline + bench-{vector,hybrid,hybrid_semantic})
 tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
-docs/                           specs, ADRs 0001–0005 and 0007, observability, media/
+infra/azure/                    Bicep (main.bicep), deploy.sh, db_setup.py (keyless Postgres role)
+docs/                           specs, ADRs 0001–0007, observability, media/
 Dockerfile, docker-compose.yml  runtime + local images; full local stack
 ```

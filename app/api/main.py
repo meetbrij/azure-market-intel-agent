@@ -16,6 +16,7 @@ from app.api.metrics import time_requests
 from app.api.routes import router
 from app.azure_clients import close_async_clients
 from app.config import get_settings
+from app.db_auth import close_credential
 from app.graph.build import build_graph
 from app.graph.checkpoint import postgres_checkpointer
 from app.jobs.store import dispose_engine, init_db
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.arq.aclose()
             await close_async_clients()
             await dispose_engine()
+            await close_credential()
 
 
 app = FastAPI(

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Local defaults; docker-compose overrides the hostnames.
     database_url: str = "postgresql+asyncpg://mia:mia@localhost:5432/mia"
     redis_url: str = "redis://localhost:6379/0"
+    # "password": credentials in DATABASE_URL (local containers).
+    # "entra": keyless; an Entra token is the password (Azure, app/db_auth.py).
+    database_auth: Literal["password", "entra"] = "password"
+    # Managed identity that owns the database role (Azure); unset = default.
+    database_client_id: str | None = None
 
     # News MCP server: unset URL = spawn the local stdio server (mcp_news);
     # set it (e.g. http://news:8001/mcp) to use a streamable-HTTP deployment.

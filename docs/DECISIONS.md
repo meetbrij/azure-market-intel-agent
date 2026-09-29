@@ -1,7 +1,7 @@
 # Decision log
 
 The reasoning behind the project's significant decisions, from Phase 1 to
-Day 17, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
+Day 18, including the fixes from the code review before Day 15 ("Day 14.5"). Architecture-level choices have full ADRs in [`docs/adr/`](adr/);
 their entries here are short and link to them. Accepted trade-offs and open
 gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
@@ -94,8 +94,14 @@ day's definition of done.
 | D-75 | 17 | Platform | News server as its own service; the worker reconnects |
 | D-76 | 17 | Platform | Probes separate liveness from readiness; one worker, Recreate |
 | D-77 | 17 | Security | Least-privilege pods and NetworkPolicies; generated Postgres password |
+| D-78 | 18 | Platform | Azure Container Apps (api, worker, news, ui, redis), Bicep in two passes |
+| D-79 | 18 | Security | Keyless Postgres: Entra-only auth, a token per connection, no password anywhere |
+| D-80 | 18 | Security | User-assigned identities per app plus a shared database identity |
+| D-81 | 18 | Platform | Images built locally or on the pipeline agent (ACR Tasks blocked) |
+| D-82 | 18 | Platform | Azure Pipelines: test, eval gate, build, deploy; workload identity federation |
+| D-83 | 18 | Operations | $50 monthly budget with actual and forecast alerts |
 
-Bugs found in live testing, and what each one changed: [F-01 to F-21](#found-in-live-testing).
+Bugs found in live testing, and what each one changed: [F-01 to F-22](#found-in-live-testing).
 
 ---
 
@@ -1031,6 +1037,82 @@ Full reasoning: [ADR 0005](adr/0005-kubernetes.md).
 
 ---
 
+## Azure deployment and CI/CD (Day 18)
+
+Full reasoning: [ADR 0006](adr/0006-deployment-topology.md).
+
+### D-78 · Azure Container Apps (api, worker, news, ui, redis), Bicep in two passes · Day 18
+- **Decision:**
+  - **Apps and ingress:** five container apps in one environment. The api
+    and ui are public over HTTPS, news uses internal HTTP, Redis internal
+    TCP, and the worker has no ingress.
+  - **Scaling:** the worker runs exactly one replica; the api, ui and news
+    scale to zero.
+  - **Deployment:** `infra/azure/main.bicep`, applied by
+    `infra/azure/deploy.sh`: base resources, then images, then the database
+    role, then apps. `--what-if` previews.
+  - **The UI is deployed too**, a deviation (the spec lists three apps). The
+    public demo is then usable in a browser. Its https address was added as
+    a redirect on `mia-ui`.
+- **Status:** Active. Deployed 2026-09-29; `/health` ok (Postgres and Redis),
+  and the worker connected to news over internal HTTP.
+
+### D-79 · Keyless Postgres: Entra-only auth, a token per connection, no password anywhere · Day 18
+- **Decision:**
+  - The server has password authentication disabled.
+  - Apps connect as the `id-mia-db` role (created by
+    `infra/azure/db_setup.py`, run as the Entra admin). Their managed
+    identity's token is the password, fetched for every new connection:
+    asyncpg and psycopg both accept a callable (`app/db_auth.py`).
+  - `DATABASE_AUTH=password` keeps Compose and kind as they were.
+- **Why:** the project's rule is keyless everywhere. A password in Key
+  Vault would have been the one exception, and a secret to rotate.
+- **Status:** Active; verified live.
+
+### D-80 · User-assigned identities per app plus a shared database identity · Day 18
+- **Decision:**
+  - Each app has its own user-assigned identity with only its roles (see
+    ADR 0006).
+  - The api and worker also share `id-mia-db`, the Postgres role.
+  - This deviates from the spec's system-assigned identities, for two
+    reasons: the AcrPull grant must exist before an app's first revision
+    pulls its image, and both apps alter the same tables, so they need one
+    owner.
+- **Status:** Active.
+
+### D-81 · Images built locally or on the pipeline agent (ACR Tasks blocked) · Day 18
+- **Context:** `az acr build` failed with `TasksOperationsNotAllowed`, a
+  subscription-level restriction (F-22).
+- **Decision:**
+  - `deploy.sh` builds `linux/amd64` with `docker buildx` and pushes, logged
+    in with Entra (`az acr login`; the registry admin user is off).
+  - The pipeline builds natively on its amd64 agent.
+  - Images are tagged with the commit, `-dirty` if built from uncommitted
+    changes.
+- **Status:** Active.
+
+### D-82 · Azure Pipelines: test, eval gate, build, deploy; workload identity federation · Day 18
+- **Decision:**
+  - The stages are: ruff, mypy and pytest; then the smoke eval against real
+    models; then the image build; then `az containerapp update` and a
+    `/health` poll.
+  - Build and deploy run on `main` only.
+  - Auth is through an Azure Resource Manager service connection with
+    workload identity federation, so no secret exists.
+  - The pipeline's identity needs data-plane roles for the eval gate
+    (OpenAI User, Search Index Data Reader).
+- **Status:** Written and wired, since the Azure DevOps pipeline already
+  points at `infra/azure-pipelines.yml`. It waits on the service connection
+  and on Microsoft's free hosted-agent grant.
+
+### D-83 · $50 monthly budget with actual and forecast alerts · Day 18
+- **Decision:** a subscription budget `mia-monthly-50`, which emails at 80%
+  and 100% of actual spend and at 100% of forecast. There was no budget
+  before.
+- **Status:** Active.
+
+---
+
 ## Found in live testing
 
 Bugs that only appeared in real runs, never in unit tests, and the fix each
@@ -1059,6 +1141,7 @@ one led to.
 | F-19 | 16 | Langfuse's legacy `GET /traces/{id}` returns 410 for organisations created after 2026-09-16 | Read through `/v2/observations` (D-72) |
 | F-20 | 16 | The smoke gate failed once on citation validity (0.75): the model shortened long reference ids (`amzn-332` for `amzn-annual-report-10k-332`); two re-runs scored 1.0 | Recorded as a limitation; proposed fix: short per-prompt reference labels mapped back in Python |
 | F-21 | 17 | Uninstalling pip in a later image layer didn't shrink the image (the base layer keeps the bytes); precompiled bytecode is 70 MB of the venv | Size kept, trade-off recorded (D-73) |
+| F-22 | 18 | `az acr build` refused: ACR Tasks not permitted on this subscription | Build with docker buildx (local) / docker (agent) and push (D-81) |
 
 ---
 
