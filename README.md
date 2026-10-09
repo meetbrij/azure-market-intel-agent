@@ -3,640 +3,347 @@
 [![Build Status](https://dev.azure.com/meetbrij/market-intel-agent/_apis/build/status%2Fmeetbrij.azure-market-intel-agent?branchName=main)](https://dev.azure.com/meetbrij/market-intel-agent/_build/latest?definitionId=1&branchName=main)
 
 Ask a research question about public companies and get back a structured
-report where every claim cites a specific page of an SEC 10-K filing or a
-news URL.
+report in which every claim cites a specific page of an SEC 10-K filing or a
+news URL. A LangGraph agent does the research, a human approves its plan
+before it writes, and the whole thing runs keyless on Azure.
 
-A FastAPI service queues the request, and a separate worker runs a
-multi-step LangGraph agent. The agent plans sub-questions, then searches the
-10-K filings (Azure AI Search) and live news (an MCP server) in parallel. It
-condenses the evidence, **pauses for human approval**, writes a cited report,
-and critiques it, re-planning once if it finds gaps. Every step is
-checkpointed in Postgres, so a job survives a worker crash and resumes where
-it stopped. Every finished report is archived, immutable, with its
-provenance and approval history. A Streamlit client makes the whole flow
-usable from a browser.
-
-**Live demo** (Azure Container Apps; may be scaled down between uses):
-[UI](https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io) ·
+**Live demo:** [UI](https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io) ·
 [API health](https://ca-mia-api.yellowrock-5f661b79.swedencentral.azurecontainerapps.io/health).
-Sign-in is Entra ID, with `analyst` and `approver` roles.
+It runs on Azure Container Apps and may be scaled down between uses. Sign-in
+is through Entra ID, with the `analyst` and `approver` roles.
 
-## Results
+## Intro
 
-Measured, not estimated. Sources are linked.
+Analysts asking "how did AWS grow compared with Microsoft's cloud?" need an
+answer they can check, not a fluent paragraph. This project is built around
+one rule: **the model writes, but Python decides what counts as evidence.**
+
+- **The writer cites by reference id only.** Company, period, page and
+  chunk are filled in from what was actually retrieved.
+- **Ungrounded citations are dropped:** an id that wasn't retrieved, or a
+  quote that doesn't appear in its source.
+- **The model never computes numbers.**
+- **When the filings don't contain the answer, the system says so.** It
+  declined 100% of the unanswerable questions in the eval.
+
+Around that core sit the production concerns:
+- a human approval gate, with separation of duties;
+- crash-safe resumption from Postgres checkpoints;
+- web content treated as untrusted;
+- an append-only audit trail;
+- tracing and cost per job;
+- an eval gate in CI.
+
+The corpus is the FY2025/26 10-Ks of Amazon, Alphabet and Microsoft, plus
+live news from Tavily.
+
+## What it does
+
+| # | Step | What happens |
+|---|---|---|
+| 1 | Submit | An analyst asks a question, optionally filtered to companies. The API queues a job and returns its id. |
+| 2 | Plan | The agent breaks the question into 3–5 sub-questions, picks companies and decides whether news is needed. |
+| 3 | Research | It searches the 10-Ks (hybrid + semantic ranking, per company) **in parallel** with live news (an MCP server). News is sanitised and screened for injected instructions. |
+| 4 | Compact | It condenses the evidence into a brief of about 2K tokens, keeping every reference id. |
+| 5 | **Approve** | The job pauses. An approver (never the submitter) sees the plan and what was found, then approves it or rejects it with notes. A rejection re-plans. |
+| 6 | Write | The agent writes a structured report. Every citation is checked against the retrieved evidence in Python. |
+| 7 | Critique | An LLM review plus deterministic checks. If it finds gaps, it re-plans, at most twice per job. |
+| 8 | Archive | `report.json`, `report.md`, provenance and every approval decision are written to Blob Storage, never overwritten. |
+
+Every step is checkpointed in Postgres, so if the worker is killed mid-job,
+the job resumes where it stopped.
+
+```mermaid
+flowchart LR
+    plan --> retrieve_filings & fetch_news
+    retrieve_filings & fetch_news --> compact
+    compact --> gate{{approve_gate<br/>human review}}
+    gate -->|approved| write --> critique
+    gate -->|rejected + notes| plan
+    critique -->|gaps, loop < 2| plan
+    critique -->|done| END([END])
+```
+
+The node-by-node failure behaviour is in [ARCHITECTURE.md](docs/ARCHITECTURE.md#agent-graph).
+
+## Application
+
+| Component | What it is |
+|---|---|
+| **API** (FastAPI) | Validates Entra ID tokens, enforces roles, stores jobs, enqueues work and serves reports |
+| **Worker** (arq + LangGraph) | Runs the agent, checkpoints every step, recovers crashed jobs; exactly one replica |
+| **News server** (MCP) | Wraps Tavily, sanitises results; the key stays in Key Vault |
+| **UI** (Streamlit) | A thin client, HTTP only: submit, follow progress, approve or reject, read reports |
+| **Ingestion** (CLI) | 10-K PDFs → page text → chunks → embeddings → Azure AI Search |
+
+**API endpoints**
+
+| Method | Path | Who |
+|---|---|---|
+| `POST` | `/api/v1/research` | analyst, approver: submit a question |
+| `GET` | `/api/v1/research` | analyst (own jobs), approver (all) |
+| `GET` | `/api/v1/research/{id}` | status, progress, plan awaiting review, report |
+| `POST` | `/api/v1/research/{id}/resume` | approver, not the submitter: approve, or reject with notes |
+| `GET` | `/api/v1/research/{id}/report.md` | the archived Markdown report |
+| `GET` | `/api/v1/companies` | the companies in the index |
+| `GET` | `/api/v1/ops/status` | approver: index size, last ingestion, jobs by status |
+| `GET` | `/api/v1/me` | who you are and your roles |
+| `GET` | `/health`, `/livez`, `/metrics` | readiness (Postgres + Redis), liveness, Prometheus |
+
+**Roles**
+
+| Role | Can |
+|---|---|
+| `analyst` | submit jobs; see and read their own jobs and reports |
+| `approver` | everything an analyst can, plus see all jobs, approve or reject plans (not their own) and view operations status |
+
+**Key behaviours**
+- **Degrade, don't fail.** A Search or news outage is recorded in the
+  report's `data_gaps`, and the run still completes. Only `plan`, `compact`,
+  `write` and `critique` failures fail a job.
+- **Bounded cost.** At most two plan passes per job. Rejections count toward
+  the cap, and a decision applies only to the pass it was made for.
+- **Auditable.** Every submission, decision, model call, withheld news item
+  and job outcome goes to an append-only `audit_events` table.
+- **Untrusted content stays data.** Web content is sanitised twice, screened
+  by a classifier plus Azure Prompt Shields (failing closed), fenced in
+  prompts and neutralised on rendering.
+
+Walkthroughs and screenshots are in [DEMO.md](docs/DEMO.md).
 
 | | |
 |---|---|
-| **Retrieval lift** (hybrid + semantic ranker vs vector) | context precision 0.54 → **0.81**, context recall 0.85 → **1.00**, wrongly declined questions 16% → **0%**, answer page retrieved 76% → **100%** ([benchmark](docs/retrieval-benchmark.md)) |
-| **Faithfulness / abstention** | faithfulness **0.97** over 25 answerable questions (1.00 on the CI smoke set); **100%** of unanswerable questions declined; citation validity **100%** |
-| **Cost per report** | **$0.071** average over 6 real reports ($0.033–$0.088; most took two passes), priced by Langfuse. It reconciles with the eval harness's own cost to $0.000001 ([observability](docs/observability.md)) |
-| **Job latency** | machine time per report: median **7.4 min**, p95 **13.5 min** (6 reports on low-quota gpt-5-mini, two passes typical) |
-| **Resume after crash** | worker killed mid-report in Compose, on kind and in **Azure**: the job resumes from its last checkpoint, and completed steps aren't repeated ([ADR 0003](docs/adr/0003-checkpointing.md), [ADR 0006](docs/adr/0006-deployment-topology.md)) |
-| **Image hardening** | pinned base digests, no package manager, non-root, a health check per component. Size stayed at 397 MB: dropping bytecode would save 57 MB but double start time ([ADR 0005](docs/adr/0005-kubernetes.md)) |
-| **Tests** | 188 offline tests; ruff and mypy clean; the eval gate runs in CI on every push |
+| ![Approver: approve the plan](docs/media/MIA_approver_approve_job.png) | ![Report view](docs/media/MIA_analyst_view_report.png) |
 
-What's next: [ROADMAP](docs/ROADMAP.md). Known gaps:
-[KNOWN_LIMITATIONS](docs/KNOWN_LIMITATIONS.md). Why things are the way
-they are: [DECISIONS](docs/DECISIONS.md) and [ADRs](docs/adr/).
+## Tech stack
+
+**Application**
+
+| Tool | Used for |
+|---|---|
+| Python 3.12, uv | language and dependency management (separate groups for the UI and ingestion; RAGAS in its own environment) |
+| LangGraph | the agent graph, human-in-the-loop interrupts, Postgres checkpointer |
+| Azure OpenAI | `gpt-5-mini` for chat, `text-embedding-3-small` for embeddings |
+| Azure AI Search | hybrid (BM25 + vector) retrieval with the semantic ranker |
+| FastAPI, arq, Redis | the API and the job queue |
+| PostgreSQL | jobs, audit events, LangGraph checkpoints |
+| MCP (FastMCP), Tavily | the live news server |
+| Streamlit, MSAL | the UI, signing in with the auth code flow and PKCE |
+| Entra ID, PyJWT | tokens, app roles, keyless auth everywhere (`DefaultAzureCredential`) |
+| Azure Prompt Shields | the second layer of the prompt-injection screen |
+| Langfuse, Prometheus | tracing with cost per job; API and job metrics |
+| RAGAS, pytest, ruff, mypy | evals, 188 offline tests, lint and types |
+
+**Infrastructure and delivery**
+
+| Tool | Type | Used for |
+|---|---|---|
+| Docker, Docker Compose | Both | hardened images; the full stack locally |
+| Helm, kind | Infra | a production-shaped chart with NetworkPolicies, tested locally |
+| Azure Container Apps | Infra | the live deployment: five apps, scale to zero |
+| PostgreSQL Flexible Server | Infra | Entra-only auth; no password exists |
+| Bicep | Infra | all Azure resources, deployed in two passes |
+| Azure Container Registry | Both | images |
+| Key Vault, Blob Storage | Infra | third-party keys; filings and the immutable report archive |
+| Azure Pipelines | Pipeline | test → eval gate → build → deploy, with workload identity federation |
+
+Deliberately not used: AKS (the same talking point as kind, at a monthly
+cost; [ADR 0005](docs/adr/0005-kubernetes.md)), API keys for Azure services,
+and LangChain agents (the graph is explicit).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion["Ingestion (CLI, run once)"]
-        B[(Blob Storage<br/>raw-filings)] --> P[pypdf<br/>page text]
-        P --> C[chunk<br/>1000 / 150]
-        C --> E[embed<br/>batches of 64]
-    end
-    E --> S[(Azure AI Search<br/>filings-v1 · HNSW)]
-
-    ID{{Entra ID<br/>analyst / approver}} -.->|tokens| UI
-    UI([Streamlit UI]) -->|HTTP + bearer token| API[FastAPI]
-    U([curl + token]) --> API
-    API -->|job rows| PG[(Postgres<br/>jobs + langgraph<br/>checkpoints)]
-    API -->|enqueue| R[(Redis<br/>arq queue)]
-    R --> W[arq worker<br/>LangGraph agent]
-    W <-->|state per step| PG
-    W -->|hybrid + semantic search| S
-    W -->|chat + embeddings| AOAI[Azure OpenAI]
-    W -->|"MCP (stdio locally, HTTP in Azure)"| N[mcp_news server]
-    N -->|key from Key Vault| T[Tavily]
-    W -->|immutable bundle| RB[(Blob Storage<br/>reports)]
-    W -.->|traces| LF[Langfuse]
-    API -->|audit_events| PG
+    ID{{Entra ID}} -.->|tokens| UI([Streamlit UI])
+    UI -->|HTTPS + token| API[FastAPI]
+    API --> PG[(Postgres<br/>jobs · audit · checkpoints)]
+    API -->|enqueue| R[(Redis)]
+    R --> W[Worker<br/>LangGraph]
+    W <--> PG
+    W --> S[(AI Search<br/>10-K chunks)]
+    W --> AOAI[Azure OpenAI]
+    W -->|MCP| N[News server] --> T[Tavily]
+    W --> RB[(Blob<br/>report archive)]
+    W -.-> LF[Langfuse]
+    KV[(Key Vault)] -.-> N & W
 ```
 
-The code runs the same in three places: Docker Compose on a laptop, a Helm
-chart on kind ([Kubernetes](#kubernetes-helm-on-kind)), and Azure Container
-Apps ([Azure deployment](#azure-deployment-container-apps)). Everything is
-keyless, including Postgres in Azure.
+The same images run in three places: Docker Compose on a laptop, a Helm
+chart on kind, and Azure Container Apps.
 
-### The agent graph
+In Azure:
+- **Five container apps:**
+  - api and ui are public;
+  - news and Redis are internal only;
+  - the worker has no ingress.
+- **Identities:** each app runs with its own managed identity, holding only
+  the roles that app needs.
+- **Postgres** accepts only Entra tokens.
+
+| Topic | Where |
+|---|---|
+| Components, graph, design rules, security layers | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Container Apps topology, identities, Helm, operations | [DEPLOYMENT.md](docs/DEPLOYMENT.md), [ADR 0006](docs/adr/0006-deployment-topology.md) |
+| Tracing, metrics, measured costs | [observability.md](docs/observability.md) |
+
+## CI/CD
 
 ```mermaid
-flowchart TD
-    START([START]) --> plan
-    plan --> retrieve_filings
-    plan --> fetch_news
-    retrieve_filings --> compact
-    fetch_news --> compact
-    compact --> gate{{"approve_gate<br/>interrupt: human review"}}
-    gate -->|approved| write
-    gate -->|rejected + notes| plan
-    write --> critique
-    critique -->|"gaps and loop_count < 2"| plan
-    critique -->|complete or cap reached| END([END])
+flowchart LR
+    push([push / PR]) --> test[Test<br/>ruff · mypy · pytest]
+    test --> gate[Eval gate<br/>5 questions, real models]
+    gate -->|main| build[Build<br/>images → ACR]
+    build --> deploy[Deploy<br/>Container Apps · /health]
 ```
 
-| Node | Does | If it fails |
-|---|---|---|
-| `plan` | 3–5 sub-questions, companies, whether news is needed (structured output) | job fails |
-| `retrieve_filings` | hybrid + semantic-ranked search per sub-question (and per company), deduped | degrades: `data_gaps` |
-| `fetch_news` | recent news via the MCP server, when the plan asks for it, screened for prompt injection | degrades: `data_gaps` |
-| `compact` | condenses evidence into a ~2K-token brief, keeping every reference id | job fails |
-| `approve_gate` | pauses with the plan and evidence counts until someone resumes | waits |
-| `write` | cited report from the brief and evidence | job fails |
-| `critique` | LLM review plus deterministic citation checks; may send it back to `plan` | job fails |
+Azure Pipelines (`infra/azure-pipelines.yml`) signs in to Azure through
+workload identity federation, so there's no secret anywhere.
 
-Why this shape, why the gate sits before the writer, and why the loop is
-capped at two passes: [ADR 0002](docs/adr/0002-graph-topology.md).
+**The eval gate** runs five golden questions against the real models and
+the real index on every push. It fails the build if any of these happen:
+- faithfulness drops below 0.90;
+- citation validity drops below 0.80;
+- the unanswerable question gets answered;
+- any score is missing.
 
-## Design choices
+Pull requests stop after the gate; `main` builds and deploys.
 
-- **Keyless auth everywhere.** Every Azure client uses `DefaultAzureCredential`
-  (Entra ID); the code holds no API keys. The only third-party key (Tavily)
-  comes from Key Vault. Deployment names come from env vars, so swapping a
-  retired model is a config change.
-- **Real identities and a real second pair of eyes.** Every API call needs an
-  Entra ID access token. App roles decide what a caller may do (`analyst`
-  submits and sees their own jobs; `approver` sees all and decides), and
-  nobody can approve a job they submitted. Every submission, decision, model
-  call and withheld news item goes to an append-only `audit_events` table.
-- **Web content is data, never instructions.** News is sanitised, screened
-  for injected instructions (our classifier plus Azure's Prompt Shields),
-  fenced, and can't change control flow.
-  [ADR 0004](docs/adr/0004-untrusted-content.md).
-- **Citations grounded in Python, not trusted from the model.** The writer
-  cites evidence by reference id only. Company, period, page and chunk are
-  filled in from the evidence, and a reference that wasn't retrieved (or a
-  quote that isn't in its source) is dropped. The critic's deterministic
-  checks override the LLM's verdict.
-- **Human in the loop at the cheapest useful point.** The reviewer sees the
-  plan and what was found before the expensive writing step, and can reject
-  with notes to re-plan.
-- **Hard cost cap.** At most two plan passes per job (`MAX_LOOPS`);
-  rejections count toward it, and rejecting the last pass ends the job. A
-  decision applies only to the pass it was made for (`expected_pass`).
-- **Durable and resumable.** Postgres checkpoints with `thread_id = job id`,
-  plus startup recovery of jobs a dead worker left `running`.
-  [ADR 0003](docs/adr/0003-checkpointing.md).
-- **Degrade, don't fail.** A Search or news outage is recorded in the
-  report's `data_gaps` and the run still completes. Transient errors (429, 5xx,
-  timeouts) are retried with backoff. Chat calls fall back to a second
-  deployment on repeated 429s or timeouts. LLM nodes have a wall-clock timeout.
-- **Every job is a trace.** Langfuse shows each node, model call, search and
-  tool call of a job in one trace (trace id = job id), with tokens and cost
-  per node priced by Langfuse. An eval run's cost reconciles with the
-  harness's own calculation to the sixth decimal. `/metrics` exposes API
-  latency and jobs by status. See [Observability](docs/observability.md).
-- **An auditable record of every report.** On completion the worker writes
-  `report.json`, `report.md`, `provenance.json` (evidence references, models
-  and tokens per node) and one file per approval decision to
-  `reports/{yyyy}/{mm}/{job_id}/`. Blobs are never overwritten.
-  [ADR 0007](docs/adr/0007-report-archival.md).
-- **Measured retrieval, not assumed.** Hybrid search (BM25 + vector) with
-  the semantic ranker is the default because the eval showed it: context
-  precision 0.54 → 0.81 and wrongly declined questions 16% → 0%
-  ([benchmark](docs/retrieval-benchmark.md)).
-- **Balanced retrieval for comparisons.** Each requested company gets its own
-  top-k; otherwise "Google Cloud" chunks crowd out Amazon's "AWS" chunks.
-- **A separate worker instead of FastAPI `BackgroundTasks`.**
-  [ADR 0001](docs/adr/0001-async-job-execution.md).
+## Results
 
-## Setup
+Measured, not estimated.
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/), Docker, the Azure CLI,
-and `az login` as a user with these roles on the resources:
-
-| Resource | Role |
+| | |
 |---|---|
-| Azure OpenAI / AI Foundry | Cognitive Services OpenAI User |
-| Azure AI Search | Search Index Data Contributor, Search Service Contributor |
-| Storage account | Storage Blob Data Contributor (reads filings; writes the report archive and ingestion manifest) |
-| Key Vault | Key Vault Secrets User |
-
-The OpenAI resource needs a chat deployment (e.g. `gpt-5-mini`) and an
-embedding deployment (e.g. `text-embedding-3-small`). Key Vault needs a
-`tavily-api-key` secret for news.
-
-```bash
-uv sync
-cp .env.example .env    # then fill in your endpoints and deployment names
-uv run scripts/smoke_test.py   # optional: checks every Azure dependency
-```
-
-**Sign-in (Entra ID).** Create the two app registrations and assign the app
-roles. It needs a user who can create app registrations and grant admin
-consent, creates no secrets, and is safe to re-run:
-
-```bash
-# object ids of the users who get the analyst and approver roles
-infra/entra/setup.sh <analyst-object-id> <approver-object-id>
-```
-
-Paste the three values it prints (`AUTH_TENANT_ID`, `AUTH_API_CLIENT_ID`,
-`AUTH_UI_CLIENT_ID`) into `.env`. For offline work only, `DEV_AUTH_BYPASS=true`
-with `ENVIRONMENT=local` skips token checks; the API refuses to start with it
-anywhere else.
-
-## Ingest the filings
-
-Upload 10-K PDFs to the `raw-filings` container, then:
-
-```bash
-uv run python -m ingestion.ingest --recreate
-uv run python -m ingestion.verify "operating income growth"
-```
-
-Metadata comes from the filename (`{COMPANY} 10-K {YYYY-MM-DD}.pdf`) or, when
-that doesn't match, from ticker aliases in the name and the filing's cover
-page. Three 10-Ks give about 1,250 chunks and fit in AI Search's Free tier
-(~50 MB).
-
-## Run
-
-```bash
-docker compose up -d --build
-docker compose ps          # api, worker, ui, postgres, redis
-```
-
-- **Web UI:** <http://localhost:8501> (see [Web UI](#web-ui-streamlit))
-- **Swagger:** <http://localhost:8000/docs>
-
-### Demo: submit, approve, get the report
-
-Two people: an analyst submits, a different approver decides. Get a token for
-each (a browser window opens to sign in; sign in as the approver the second
-time):
-
-```bash
-export ANALYST=$(uv run --group ui python scripts/get_token.py)
-export APPROVER=$(uv run --group ui python scripts/get_token.py)
-```
-
-```bash
-JOB=$(curl -s -X POST localhost:8000/api/v1/research -H "Authorization: Bearer $ANALYST" \
-  -H 'content-type: application/json' \
-  -d '{"query":"Compare Amazon and Microsoft cloud revenue growth and recent cloud news","companies":["Amazon","Microsoft"]}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["job_id"])')
-
-# queued -> running (last_node / checkpoint_count show progress) -> awaiting_approval
-until curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(awaiting_approval|completed|failed)"'; do sleep 3; done
-curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | python3 -m json.tool   # "interrupt" holds the plan to review
-```
-
-The job waits at `awaiting_approval` until an approver (not the submitter)
-decides:
-
-```json
-"interrupt": {
-  "pass": 1,
-  "companies": ["Amazon", "Microsoft"],
-  "sub_questions": ["Amazon AWS net sales and year-over-year growth ...", "..."],
-  "needs_live_news": true,
-  "evidence_counts": {"filings": 18, "news": 10},
-  "degraded": []
-}
-```
-
-```bash
-# Reject with notes: the planner revises the plan and the job pauses again
-curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H "Authorization: Bearer $APPROVER" \
-  -H 'content-type: application/json' \
-  -d '{"approved": false, "notes": "Use the latest fiscal year vs the prior year only.", "expected_pass": 1}'
-
-# Approve pass 2: write -> critique. (Without the rejection, a critic that finds
-# gaps would re-plan once more; the rejection already used that pass.)
-curl -s -X POST localhost:8000/api/v1/research/$JOB/resume -H "Authorization: Bearer $APPROVER" \
-  -H 'content-type: application/json' -d '{"approved": true, "expected_pass": 2}'
-
-until curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | grep -Eq '"status":"(completed|failed)"'; do sleep 3; done
-curl -s -H "Authorization: Bearer $ANALYST" localhost:8000/api/v1/research/$JOB | python3 -m json.tool
-```
-
-Result (trimmed, from a real run):
-
-```json
-{
-  "status": "completed",
-  "last_node": "critique",
-  "checkpoint_count": 12,
-  "report": {
-    "summary": "Amazon reported AWS net sales of $128,725 (FY2025) and $107,556 (FY2024); Amazon stated “AWS sales increased 20% in 2025.” Microsoft reported Intelligent Cloud revenue of $137,791 (FY2026) and $106,265 (FY2025) ...",
-    "sections": [
-      {
-        "heading": "Amazon AWS — revenue and operating income (FY2024–FY2025)",
-        "citations": [
-          {
-            "source_type": "filing", "reference": "amzn-annual-report-10k-145",
-            "company": "Amazon", "doc_type": "10-K", "period": "2025-12-31",
-            "source_blob": "amzn_annual_report_10k.pdf", "chunk_no": 145, "page": 25,
-            "quote": "AWS sales increased 20% in 2025, compared to the prior year."
-          }
-        ]
-      },
-      {
-        "heading": "Recent cloud-related developments after the fiscal-year ends",
-        "citations": [
-          {
-            "source_type": "news", "company": "Microsoft", "period": "2026-09-23",
-            "reference": "https://www.bradenton.com/news/business/article317353820.html",
-            "quote": "Microsoft plans $10 billion-plus Gulf investment with focus on resilience"
-          }
-        ]
-      }
-    ],
-    "data_gaps": []
-  }
-}
-```
-
-Job statuses: `queued`, `running`, `awaiting_approval`, `completed`,
-`failed`. Resuming a job that isn't paused returns 409; an unknown id returns
-404. `GET /health` checks Postgres and Redis.
-
-### Demo: kill the worker mid-run, watch it resume
-
-```bash
-# Submit a job (as above), and once "last_node" is "plan" (retrieval in flight):
-docker compose kill worker          # SIGKILL: no cleanup runs
-docker compose up -d worker
-docker compose logs -f worker
-```
-
-```
-WARNING Recovering job 24dfc2b4-… (last node plan, 1 checkpoints): still queued; lock released
-INFO    Job 24dfc2b4-… resuming from checkpoint; completed nodes are skipped, next=['retrieve_filings', 'fetch_news']
-INFO    fetch_news: 10 new item(s)
-INFO    retrieve_filings: 18 hit(s), 18 new, 18 total
-INFO    Job 24dfc2b4-… awaiting approval (pass 1)
-```
-
-`plan` is not run again: the job resumes from its last checkpoint. On startup
-the worker releases the dead worker's queue lock (otherwise held for 610s)
-and re-enqueues every job still marked `running`.
-
-### Local dev without app containers
-
-```bash
-docker compose up -d postgres redis
-uv run uvicorn app.api.main:app --reload         # terminal 1
-uv run arq app.jobs.worker.WorkerSettings        # terminal 2
-API_BASE_URL=http://localhost:8000 uv run --group ui streamlit run ui/app.py   # terminal 3
-uv run python -m app.graph.build "How did Amazon's operating income change in fiscal 2025?" --yes   # graph only (--yes auto-approves)
-```
-
-### Tests and checks
-
-```bash
-uv run pytest          # no network: SQLite, in-memory checkpointer, mocked LLM/Search/news/queue
-uv run ruff check app ingestion mcp_news tests ui
-uv run mypy app ingestion mcp_news tests --ignore-missing-imports
-uv run --group ui mypy ui --ignore-missing-imports   # the UI is a separate program
-uv run python -m evals.run --smoke                   # eval gate (real model calls)
-```
-
-## Evaluation
-
-A hand-written golden set ([`evals/golden_set.yaml`](evals/golden_set.yaml))
-has 30 questions: 12 factual, 8 comparative, 5 year-over-year and **5
-unanswerable**. Every answer is quoted from a cited page of the filings. For
-each question the harness retrieves, answers once from exactly those chunks,
-then scores the result:
-
-- **RAGAS 0.4:** context precision and recall, faithfulness, answer relevancy.
-  It runs in its own environment ([`evals/ragas/`](evals/ragas/)) because
-  RAGAS needs `openai<3` and the app uses openai 3.x.
-- **Plain Python:** citation validity (cited ids ⊆ retrieved ids) and
-  abstention (declining the unanswerable questions instead of inventing a
-  number).
-
-```bash
-uv run python -m evals.run [--variant vector|hybrid|hybrid_semantic]   # all 30 → results/
-uv run python -m evals.run --smoke          # 5 questions, production mode; exits 1 below evals/thresholds.yaml
-```
-
-**Retrieval benchmark** (all 30 questions, same day and index; full write-up
-in [docs/retrieval-benchmark.md](docs/retrieval-benchmark.md)):
-
-| variant | context precision | context recall | false abstention | abstention (unanswerable) | retrieval p50 | cost/query |
-|---|---|---|---|---|---|---|
-| vector | 0.542 | 0.847 | 16% | 100% | 539 ms | $0.0017 |
-| hybrid (BM25 + vector, RRF) | 0.592 | 0.947 | 4% | 100% | 536 ms | $0.0015 |
-| **hybrid + semantic ranker** (shipped) | **0.806** | **1.000** | **0%** | 100% | 592 ms | $0.0015 |
-
-Hybrid + semantic ranking retrieved the expected evidence for every
-answerable question, at about +55 ms median retrieval latency, and every
-variant still declined all the unanswerable questions. Its real cost is the
-semantic ranker's quota (1,000 queries a month on the Free plan). When the
-quota runs out it falls back to hybrid, and the eval records each fallback.
-The judge is the same gpt-5-mini deployment that writes the answers, so read
-the RAGAS numbers as comparisons between variants rather than absolute
-scores.
-
-## Web UI (Streamlit)
-
-A thin client over the API, for demonstrating the approval gate and crash
-resume and for reading reports. It is a demo harness, not a product. It talks
-to the system **only over HTTP** (`ui/api_client.py`). It runs in its own
-image containing just Streamlit, httpx and MSAL, so it can't import the graph
-or reach Postgres.
-
-**Sign-in:** click *Sign in with Microsoft*. You sign in at Microsoft and
-are sent back to the app (auth code flow with PKCE, `ui/auth.py`; no client
-secret). The sidebar shows who you are and your app roles, as the API sees
-them (`GET /api/v1/me`). Tokens live only in your browser session and are
-refreshed silently; reloading the page means signing in again.
-
-| Screen | Who | What |
-|---|---|---|
-| Submit | analyst, approver | question (with example presets), optional company filter from the index |
-| Jobs | analyst: own jobs; approver: all | recent jobs with status badges; for approvers, jobs awaiting approval come first, flagged 🔔, with who submitted them |
-| Job detail | analyst (own), approver | status, elapsed time, current node, pass counter, degraded-source warnings; live progress (polls every 2s until the job settles) |
-| ↳ tabs | same | **Report** (archived Markdown, data gaps up front, numbered citations, download), **Plan**, **Evidence** (filings + news, snippets as plain text), **Critique**, **Raw** JSON |
-| ↳ approval | approver, not the submitter | the plan, evidence counts and sub-questions; **Approve**, or **Reject** with required notes (sends it back to the planner) |
-| Operations | approver | index size, last ingestion (from the ingest CLI's manifest), job counts by status, running jobs; read-only |
-
-The UI only hides what the API would refuse anyway: roles and the
-"not your own job" rule are enforced by the API from the token. Approval
-records in the archive name the reviewer from their token.
-
-`Planner`, `Writer` and `Critic` are agent nodes in the graph, not human
-roles. The job view shows what each produced, as tabs.
-
-### Demo clips
-
-Screenshots (the Streamlit client, signed in as each role):
-
-![Analyst: submit a job](docs/media/MIA_analyst_submit_job.png)
-![Approver: approve the plan](docs/media/MIA_approver_approve_job.png)
-![Report view](docs/media/MIA_analyst_view_report.png)
-
-Langfuse dashboard (cost, latency, outcomes):
-
-![Langfuse dashboard](docs/media/Dashboards-Langfuse-01.png)
-
-Still to record: three short clips for `docs/media/`:
-
-1. **Happy path:** submit → progress → approval → approved → cited report.
-2. **Crash resume:** `docker compose kill worker` mid-run, restart; the UI
-   keeps showing progress and the job completes from its checkpoint.
-3. **Rejection loop:** reject with notes, the planner re-runs, and the report
-   follows the notes.
-
-<!-- Uncomment once the clips are recorded:
-![Happy path](docs/media/happy-path.gif)
-![Crash resume](docs/media/crash-resume.gif)
-![Rejection loop](docs/media/rejection-loop.gif)
--->
-
-## Observability
-
-- **Tracing:** Langfuse, with one trace per job. The trace id is the job id
-  without dashes, the user is the submitter, and each trace is tagged with
-  the retrieval variant, model and outcome. Keys come from Key Vault;
-  without them, jobs run untraced.
-- **Metrics:** `GET /metrics` (Prometheus) gives request latency per route
-  and jobs by status.
-- **Cost check:** `evals.run --smoke --trace`, then `evals.reconcile`,
-  compares Langfuse's cost with the harness's. They matched exactly.
-
-Details, measured costs and the dashboard recipe:
-[docs/observability.md](docs/observability.md).
-
-## Report archive
-
-Each completed job writes `report.json`, `report.md` and `provenance.json`
-to `reports/{yyyy}/{mm}/{job_id}/`, plus `approval-pass{n}.json` for every
-decision. Uploads never overwrite an existing blob, and the prefix is stored
-on the job (`archive_prefix`). `GET /api/v1/research/{id}/report.md` serves
-the archived Markdown (header `X-Report-Source: archive`). If archiving
-failed, it falls back to rendering from the job record (`rendered`). Why and
-how: [ADR 0007](docs/adr/0007-report-archival.md).
-
-## Configuration
-
-Beyond the Azure endpoints in `.env.example`, all optional:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `APPROVAL_REQUIRED` | `true` | `false` auto-approves every plan (no pause) |
-| `AZURE_OPENAI_CHAT_FALLBACK_DEPLOYMENT` | unset | chat deployment used after repeated 429s or timeouts |
-| `RETRY_ATTEMPTS` / `RETRY_BASE_WAIT_S` | `4` / `1.0` | retries for Search, embeddings and chat (429, 5xx, timeouts only) |
-| `NODE_TIMEOUT_S` | `300` | wall-clock cap per graph node |
-| `RETRIEVAL_MODE` | `hybrid_semantic` | `vector`, `hybrid` or `hybrid_semantic` (falls back to hybrid if the ranker is unavailable) |
-| `SEMANTIC_CONFIGURATION` | `filings-semantic` | semantic configuration defined in the index |
-| `RETRIEVAL_TOP_K` | `4` | chunks per sub-question (per company for comparisons) |
-| `NEWS_ENABLED` / `NEWS_MCP_URL` | `true` / unset | turn news off, or use a remote HTTP MCP server |
-| `CHECKPOINT_SCHEMA` | `langgraph` | Postgres schema for LangGraph's checkpoint tables |
-| `LANGGRAPH_STRICT_MSGPACK` | `true` | only safe types may be loaded from checkpoints |
-| `REPORTS_CONTAINER` | `reports` | Blob container for the immutable report archive |
-| `API_BASE_URL` (UI only) | `http://api:8000` | where the Streamlit client sends its requests |
-| `AUTH_TENANT_ID` / `AUTH_API_CLIENT_ID` / `AUTH_UI_CLIENT_ID` | unset | Entra tenant and the two app registrations (`infra/entra/setup.sh`); required unless the bypass is on |
-| `ENVIRONMENT` | `local` | anything but `local` forbids `DEV_AUTH_BYPASS` |
-| `DEV_AUTH_BYPASS` | `false` | local only: skip token checks; identity from `X-Dev-User` / `X-Dev-Roles` headers |
-| `NEWS_SCREEN_ENABLED` | `true` | screen news for injected instructions before any prompt (fails closed) |
-| `DATABASE_AUTH` / `DATABASE_CLIENT_ID` | `password` / unset | `entra` = keyless Postgres (token per connection, the given managed identity); Azure only |
-| `TRACING_ENABLED` / `LANGFUSE_HOST` | `true` / EU cloud | Langfuse tracing; keys from Key Vault (`langfuse-public-key`, `langfuse-secret-key`); off without them |
-| `AZURE_OPENAI_CHAT_MODEL` / `AZURE_OPENAI_EMBED_MODEL` | `gpt-5-mini` / `text-embedding-3-small` | model names behind the deployments, so Langfuse can price calls |
-
-## Live news via MCP
-
-`mcp_news/` is a real [MCP](https://modelcontextprotocol.io) server (FastMCP)
-wrapping Tavily. It exposes two tools:
-
-- `search_company_news(company, days=7, max_results=5)`
-- `get_market_context(topic)`
-
-Both return `{title, url, published, snippet}`. The Tavily key is read from Key
-Vault (`tavily-api-key`) with keyless auth and never leaves the server process.
-Tavily calls retry timeouts, 429s and 5xx within the client's 30s per-call
-budget.
-
-The worker opens one MCP session at startup (`langchain-mcp-adapters`) and
-keeps it for its lifetime. By default it spawns the server over **stdio**; set
-`NEWS_MCP_URL` to use a separately deployed **streamable-HTTP** server instead
-(`NEWS_MCP_TRANSPORT=streamable-http` on the server side). If the server is
-unavailable, the run continues without news and the report's `data_gaps`
-says so.
-
-```bash
-uv run python -m mcp_news.server                                          # stdio
-npx @modelcontextprotocol/inspector uv run python -m mcp_news.server      # inspect interactively
-```
-
-**Untrusted content guardrail.** Everything fetched from the web is treated as
-data, never as instructions:
-
-1. The server strips HTML (including script and style blocks), unescapes
-   entities, collapses whitespace, caps titles at 200 and snippets at 500
-   characters, drops non-http(s) URLs and skips social platforms.
-2. The graph's client sanitises again, because a remote server can't be
-   trusted to have done it.
-3. Prompts fence news text in `<untrusted_web_content>` tags, and the
-   compact and write prompts say never to follow instructions found inside
-   them.
-4. The stdio server receives only the environment variables it needs for Key
-   Vault access, not the database URL or anything else.
-5. When rendered, quoted source text is escaped, and model-written prose has
-   images, inline links and raw HTML neutralised (both `report.md` and the UI's
-   Evidence tab, which shows snippets as plain text).
-
-On top of these, news is screened for injected instructions before it
-reaches any prompt, by our classifier plus Azure's Prompt Shields, and
-dropped if the screen can't run. See
-[ADR 0004](docs/adr/0004-untrusted-content.md) for all the layers.
-
-## Kubernetes (Helm on kind)
-
-`infra/helm/` deploys the api, worker, MCP news server and UI, plus Postgres
-and Redis in the cluster for demos. One command sets up a local cluster:
-
-```bash
-infra/kind/up.sh            # kind cluster, images, ConfigMap from .env, helm install
-kubectl port-forward svc/mia-ui 8501:8501    # sign in at http://localhost:8501
-kubectl port-forward svc/mia-api 8000:8000   # the API, for curl
-infra/kind/down.sh          # delete the cluster
-```
-
-- **Pods:** non-root, read-only root filesystem, no capabilities.
-- **Probes:** liveness is kept apart from readiness. A database outage takes
-  the API out of rotation; it doesn't restart it.
-- **Worker:** exactly one, with the `Recreate` strategy.
-- **NetworkPolicies:** only the worker may reach the news server; only the
-  api and worker may reach Postgres and Redis. These were checked on kind.
-- **Images:** base images are pinned by digest, pip is removed from the
-  runtime image, and a `HEALTHCHECK` runs per component. Sizes: runtime
-  397 MB before and after. The trade-off is in
-  [ADR 0005](docs/adr/0005-kubernetes.md), which also explains why there is
-  no AKS: it costs money every month for the same talking point.
-
-## Azure deployment (Container Apps)
-
-Live (demo; may be scaled down between uses):
-
-- UI: <https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io>
-  (sign in with an account that has the `analyst` or `approver` role)
-- API: <https://ca-mia-api.yellowrock-5f661b79.swedencentral.azurecontainerapps.io/health>
-
-```bash
-infra/azure/deploy.sh --what-if     # preview; creates nothing
-infra/azure/deploy.sh               # base → images → Postgres role → apps
-
-infra/azure/power.sh status         # what's running; is the API healthy
-infra/azure/power.sh down           # pause: stop Postgres, scale worker + Redis to zero
-infra/azure/power.sh up             # resume, and wait until the API is healthy
-
-infra/azure/destroy.sh --dry-run    # list what would be deleted
-infra/azure/destroy.sh              # delete the deployment (asks you to confirm)
-```
-
-`power.sh down` keeps everything and saves most of the cost. Azure restarts
-a stopped Postgres server after 7 days, so run it again if needed.
-`destroy.sh` removes only what `deploy.sh` created. It keeps the Day 1
-resources: OpenAI, the Search index, the filings and report archive, and
-Key Vault. So `deploy.sh` can bring the whole thing back.
-
-- **Five container apps:** api and ui are public over HTTPS; news uses
-  internal HTTP; Redis internal TCP; the worker has no ingress and runs
-  exactly one replica.
-- **PostgreSQL Flexible Server (B1ms)** with **Entra-only auth**: the apps
-  log in with their managed identity's token, and no database password
-  exists.
-- **Identities:** one user-assigned managed identity per app, each with
-  only the roles that app needs.
-- **CI/CD:** `infra/azure-pipelines.yml` runs test, the eval gate, build
-  and deploy, authenticating through workload identity federation.
-- **Budget:** a $50 monthly budget alert.
-
-The topology, identities and trade-offs are in
-[ADR 0006](docs/adr/0006-deployment-topology.md).
-
-## Azure auth in containers (local only)
-
-The `local` image target adds the Azure CLI. docker-compose (and kind, via the
-node mount in `infra/kind/up.sh`) mounts `~/.azure`
-read-only and pins `AZURE_TOKEN_CREDENTIALS=AzureCliCredential`. On start, the
-container copies the mount into a writable directory, because `az` rewrites
-its token cache when it refreshes a token. Your host `~/.azure` is never
-modified.
-
-This is for local development only. The `runtime` target (no CLI) is what
-gets deployed. In Azure every app runs with its own managed identity
-(`AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential`), with no code changes;
-see [ADR 0006](docs/adr/0006-deployment-topology.md).
-
-## Project layout
+| **Retrieval lift** (hybrid + semantic vs vector) | context precision 0.54 → **0.81**; context recall 0.85 → **1.00**; wrongly declined questions 16% → **0%**; answer page retrieved 76% → **100%** ([benchmark](docs/retrieval-benchmark.md)) |
+| **Faithfulness and abstention** | faithfulness **0.97** over 25 answerable questions; **100%** of unanswerable questions declined; citation validity **100%** ([EVALS.md](docs/EVALS.md)) |
+| **Cost per report** | **$0.071** on average over 6 real reports ($0.033–$0.088; most took two passes), priced by Langfuse. It reconciles with the eval harness to $0.000001 |
+| **Job latency** | machine time per report: median **7.4 min**, p95 **13.5 min** (low-quota gpt-5-mini, two passes typical) |
+| **Resume after crash** | worker killed mid-report in Compose, on kind and in **Azure**: the job resumed from its last checkpoint without repeating completed steps |
+| **Pipeline** | all four stages green; the apps run the pipeline-built images |
+| **Tests** | 188 offline tests; ruff and mypy clean |
+
+## Repository layout
 
 ```
 app/
-  config.py, azure_clients.py   settings; cached keyless clients (sync + async)
-  resilience.py                 retries (429 / 5xx / timeouts)
-  api/                          FastAPI app, routes (research, resume, report.md,
-                                companies, ops status, health), schemas
-  graph/                        state, nodes, prompts, LLM calls + fallback, retrieval,
-                                MCP news client, Postgres checkpointer, graph assembly/CLI
-  jobs/                         jobs table, store, arq worker + crash recovery
-  reports/                      report Markdown renderer, immutable Blob archive
-ingestion/                      index schema, PDF parse, chunk, ingest CLI, verify
-mcp_news/                       MCP news server (FastMCP + Tavily) and sanitiser
-ui/                             Streamlit client (app.py, api_client.py, Dockerfile)
-evals/                          golden set, eval harness, thresholds, cost reconcile; ragas/ = isolated scorer
-infra/helm/, infra/kind/        Helm chart (values.yaml, values-local.yaml); kind up/down scripts
-infra/entra/                    Entra app registrations (setup.sh)
-results/                        committed eval runs (baseline + bench-{vector,hybrid,hybrid_semantic})
-tests/                          pytest: API, nodes, graph, worker, MCP, resilience, UI
-infra/azure/                    Bicep (main.bicep), deploy.sh, db_setup.py (keyless Postgres role)
-docs/                           specs, ADRs 0001–0007, observability, media/
-Dockerfile, docker-compose.yml  runtime + local images; full local stack
+  api/            FastAPI: routes, auth (Entra ID), schemas, metrics
+  graph/          LangGraph: state, nodes, prompts, retrieval, LLM calls, MCP client, checkpointer
+  jobs/           jobs and audit tables, arq worker, crash recovery
+  reports/        Markdown renderer, immutable Blob archive
+  config.py, azure_clients.py, db_auth.py, observability.py, resilience.py
+ingestion/        index schema, PDF parsing, chunking, ingest and verify CLIs
+mcp_news/         MCP news server (FastMCP + Tavily) and sanitiser
+ui/               Streamlit client (own image and dependency group)
+evals/            golden set, harness, thresholds, cost reconciliation; ragas/ = isolated scorer
+results/          committed eval runs (baseline and benchmark)
+tests/            188 offline tests
+infra/
+  azure/          main.bicep, deploy.sh, power.sh, destroy.sh, db_setup.py
+  azure-pipelines.yml
+  entra/          app registrations and roles (setup.sh)
+  helm/, kind/    Helm chart; local cluster scripts
+scripts/          Azure smoke test, token helper
+docs/             architecture, setup, deployment, evals, decisions, ADRs, media
 ```
+
+## Quick start
+
+```bash
+uv sync
+cp .env.example .env                           # Azure endpoints and deployment names
+infra/entra/setup.sh <analyst-oid> <approver-oid>   # app registrations; paste the 3 ids into .env
+uv run python -m ingestion.ingest --recreate   # index the 10-Ks
+docker compose up -d --build                   # UI at http://localhost:8501, API at :8000
+uv run pytest                                  # offline tests
+```
+
+Prerequisites, Azure roles and every setting are in [SETUP.md](docs/SETUP.md).
+To deploy to Azure, run `infra/azure/deploy.sh`
+([DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+
+## Known gaps and trade-offs
+
+These are accepted on purpose for a portfolio-scale system. Each has a
+known fix. The full list, with impact ratings, is in
+[KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+
+**Trade-offs made on purpose**
+
+| Choice | Why | What it costs |
+|---|---|---|
+| Human approval before writing, on every pass | The reviewer sees the plan before the expensive step, and it can be audited | A job takes minutes and needs a second person; two passes often mean two approvals |
+| At most two plan passes per job | Bounded cost and latency | The critic's remaining gaps go into the report rather than another pass |
+| Exactly one worker | Crash recovery releases the stale queue lock safely only with one | No horizontal scaling of research jobs |
+| Azure Container Apps, not AKS | Kubernetes is shown on kind; Container Apps scales to zero | No Kubernetes in the cloud deployment |
+| Postgres over its public endpoint (Entra-only, TLS, firewall) | A VNet and private DNS cost more than the demo warrants | "Allow Azure services" admits any Azure-hosted client to the firewall (auth still required) |
+| Free tiers: AI Search, semantic ranker plan | Cost | 50 MB index (62% used); 1,000 semantic queries a month, about 50–200 reports, then automatic fallback to hybrid |
+| The LLM judge is the model under test | One chat deployment | RAGAS scores are comparisons between variants, not absolute figures |
+| Annual 10-Ks only, three companies | Scope | No quarterly data; adding a company means editing an alias list |
+
+**Gaps (not done)**
+
+- **Number grounding is prompt-only.** Quotes are checked against their
+  source, but figures in a section's prose aren't yet matched to the cited
+  snippets.
+- **Shortened reference ids.** The model occasionally abbreviates a long
+  chunk id. Grounding drops those citations, and this occasionally failed
+  the smoke gate (about 1 run in 3–4). The fix is short labels (`[E1]`,
+  `[E2]`) mapped back to chunk ids in Python.
+- **Two workers during a deploy.** Container Apps starts the new worker
+  revision before stopping the old one, so a deploy during a running job can
+  briefly run two. The workaround is to deploy between jobs.
+- **Audit and archive immutability are enforced by the app**, not by the
+  platform. The app's database role owns the audit table, and the Blob
+  container has no WORM policy.
+- **Re-ingestion isn't safe for the live index.** `--recreate` empties the
+  live index first, and an upsert can leave stale chunks behind. There are
+  no unit tests for `ingestion/`.
+- **Raw exception text reaches clients** in `job.error`.
+- **Tracing sends prompts and reports to Langfuse Cloud**, with no masking.
+- **The demo clips aren't recorded yet.** There are screenshots in
+  [docs/media/](docs/media/).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, the agent graph and failure behaviour, design rules, security and untrusted-content layers, MCP news, the report archive |
+| [docs/SETUP.md](docs/SETUP.md) | Prerequisites and Azure roles, Entra sign-in, ingestion, running locally, tests, the configuration reference |
+| [docs/DEMO.md](docs/DEMO.md) | UI screens and screenshots; the API walkthrough (submit, reject, approve); the crash-resume demo |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Images, Helm on kind, Azure Container Apps, deploy / pause / resume / destroy, CI/CD |
+| [docs/EVALS.md](docs/EVALS.md) | The golden set, harness, metrics, CI gate thresholds and results |
+| [docs/retrieval-benchmark.md](docs/retrieval-benchmark.md) | Vector vs hybrid vs hybrid + semantic ranker: setup, results and analysis |
+| [docs/observability.md](docs/observability.md) | Langfuse tracing, `/metrics`, measured costs, cost reconciliation, the dashboard recipe |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Every significant decision (D-01 to D-83), with alternatives and status |
+| [docs/adr/](docs/adr/) | Architecture decision records 0001–0007: async jobs, graph topology, checkpointing, untrusted content, Kubernetes, deployment topology, report archive |
+| [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | Every accepted gap, with impact, the reason it's accepted and what would remove it |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Deferred increments and their intended approach |
+| [docs/archive/](docs/archive/) | The phase specs the project was built from (historical) |
+| [CLAUDE.md](CLAUDE.md) | Rules for coding agents working in this repo |
+
+## Project status
+
+**Status (2026-10-09):** complete and frozen. All three phases are built,
+deployed and verified. The live deployment stays up on Azure credits and
+can be paused (`infra/azure/power.sh down`) or removed
+(`infra/azure/destroy.sh`).
+
+| Environment | URL | Deployed by |
+|---|---|---|
+| Local | `localhost:8501` (UI), `localhost:8000` (API) | `docker compose up` |
+| Kubernetes (kind) | port-forward | `infra/kind/up.sh` |
+| Azure | [UI](https://ca-mia-ui.yellowrock-5f661b79.swedencentral.azurecontainerapps.io) · [API](https://ca-mia-api.yellowrock-5f661b79.swedencentral.azurecontainerapps.io/health) | Azure Pipelines on `main` |
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1. Thin slice (Days 1–5) | Ingestion, a linear graph, API + worker, containers | **done** |
+| 2. Agents and resilience (Days 6–12) | Full graph, MCP news, Postgres checkpoints, human approval, retries and fallback, Streamlit UI, report archive | **done**: crash resume verified |
+| 3. Production (Days 13–18) | Golden set and evals; hybrid + semantic search; Entra ID auth, audit, injection screen; Langfuse and metrics; Helm on kind; Container Apps, Bicep, Azure Pipelines | **done**: context precision 0.81, 0 false declines, $0.071/report, pipeline green |
+| Review fixes (Day 14.5) | Approval bound to its pass, rejection cap, quote grounding, fence hardening, honest eval gate | **done** |
+
+**Optional next steps:**
+- the [roadmap](docs/ROADMAP.md): a chunking strategy comparison, MLflow
+  experiment tracking, an Airflow ingestion DAG, cross-job memory;
+- short reference labels, to remove the intermittent smoke-gate failure;
+- recording the demo clips.

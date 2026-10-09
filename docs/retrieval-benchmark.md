@@ -117,8 +117,8 @@ re-runs it as hybrid. Hybrid is the second-best variant here (recall 0.95,
 false abstention 4%), so running out of quota degrades gracefully rather than
 back to vector-only quality. Eval results record every fallback
 (`semantic_fallbacks`: 0 in this run), so a quota problem can't
-masquerade as a quality change. The smoke gate (to run in CI from Day 18)
-now tests the production mode. Its thresholds were re-set from four
+masquerade as a quality change. The smoke gate (which runs in CI)
+tests the production mode. Its thresholds were re-set from four
 hybrid_semantic measurements, and since Day 14.5 it also requires the
 unanswerable smoke question to be declined
 ([`evals/thresholds.yaml`](../evals/thresholds.yaml)).

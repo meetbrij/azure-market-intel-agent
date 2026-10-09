@@ -133,7 +133,7 @@ Bugs found in live testing, and what each one changed: [F-01 to F-22](#found-in-
 - **Why:** Finish the portfolio project without growing scope or cost. The
   annual filings are enough for every done-when test.
 - **Status:** Active.
-- **See:** `docs/PHASE1_SPEC.md`, the "Out of scope" section.
+- **See:** `docs/archive/PHASE1_SPEC.md`, the "Out of scope" section.
 
 ---
 
@@ -1152,8 +1152,7 @@ one led to.
 
 ## Documented elsewhere
 
-- **Spec deviations:** recorded inline in `docs/PHASE1_SPEC.md` and the other
-  specs where they occurred.
-- **Deferred work:** the Phase 3 roadmap (chunking comparison, MLflow,
-  Airflow, long-term memory) will be in `docs/ROADMAP.md`, a Phase 3
-  deliverable.
+- **Spec deviations:** recorded inline in the build specs where they
+  occurred (archived in `docs/archive/`).
+- **Deferred work:** chunking comparison, MLflow, Airflow and long-term
+  memory are in `docs/ROADMAP.md`.

@@ -4,7 +4,7 @@
 # (gpt-5-mini): every ground truth is taken from the page listed in
 # expected_pages, so each entry can be checked against the PDF.
 #
-# Mix (docs/PHASE3_SPEC.md, Day 13), adapted to an annual-only corpus:
+# Mix (docs/archive/PHASE3_SPEC.md, Day 13), adapted to an annual-only corpus:
 #   12 factual      single-document facts
 #    8 comparative  company A vs B on one metric
 #    5 temporal     change between fiscal years (the corpus has no 10-Qs)

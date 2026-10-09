@@ -1,7 +1,7 @@
 # Known limitations
 
-Trade-offs we accepted on purpose, and gaps we know about, as of Day 18. Each
-entry says why it's acceptable for now and what would remove it. The
+Trade-offs we accepted on purpose, and gaps we know about, in the final
+state of the project (2026-10-09; Phases 1–3 complete). Each entry says why it's acceptable for now and what would remove it. The
 reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
 **Impact:**
@@ -20,7 +20,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | The injection screen uses the same model family as the writer, and its false positives drop genuine news | Low | Prompt Shields is an independent second detector; news is supplementary and withheld items are reported | A dedicated classifier; measure precision/recall on a labelled set |
 | Jobs created before Day 15 have no submitter, so only approvers can see them | Low | Old demo data | — |
 | Local containers (Compose and kind) authenticate with your Azure CLI login (mounted `~/.azure`, read-only) | Low | Local development only; Azure uses managed identities (Day 18), and the deployed image has no CLI | — |
-| Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | Clients are now only signed-in users of this tenant | Day 16: a generic message for clients, details in logs and traces |
+| Raw exception text (`TypeName: message`) is stored in `job.error` and shown to clients; it can include hostnames or request details | Low | Clients are now only signed-in users of this tenant | A generic message for clients, with details in logs and traces |
 | Markdown neutralising misses reference-style links (`[x][1]` plus `[1]: url`) in model prose | Low | Needs a model to produce them; images, inline links and HTML are handled (D-38) | Drop link-definition lines when rendering |
 
 ## Durability and operations
@@ -28,7 +28,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
 | Crash recovery assumes **one worker**. With several, releasing the stale lock could run a live job twice. | Medium | Compose runs one worker; you accepted this | A heartbeat or lease check before releasing locks |
-| Checkpoints are never pruned; every step of every job is kept | Low | Tens of KB per step at portfolio scale | A retention policy (Phase 3/4 deployment) |
+| Checkpoints are never pruned; every step of every job is kept | Low | Tens of KB per step at portfolio scale | A retention policy |
 | Schema changes are idempotent `ALTER`s at startup, not migrations | Low | One schema, a few columns | Alembic |
 | A node interrupted mid-call re-runs on resume (at-least-once), repeating that LLM or Search call | Low | The cost is one repeated call, never corrupted state | — (inherent to checkpointing at node boundaries) |
 | A job whose enqueue was lost (the API died between saving the row and enqueueing) stays `queued` forever; recovery only looks at `running` jobs | Medium | A narrow window, and re-running is safe (the checkpoint decides what to do) | Recovery also re-enqueues `queued` jobs older than a few minutes that have no arq task |
@@ -43,7 +43,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
 | **Semantic ranker quota:** the Free plan allows 1,000 semantic queries a month, roughly 50–200 reports | Medium | Automatic fallback to hybrid (recall 0.95), recorded per query | The Standard semantic plan (billed per 1,000 queries) for real usage |
-| The critic is rarely fully satisfied, so two passes (and two approvals) are common | Low | The loop is capped at 2; the cost is bounded | Phase 3 evals: decide whether the second pass pays off |
+| The critic is rarely fully satisfied, so two passes (and two approvals) are common | Low | The loop is capped at 2; the cost is bounded | An eval comparing one-pass and two-pass reports, to decide whether the second pass pays off |
 | The compact brief sometimes leaves out filing references; the safety net adds them back | Low | The writer still sees every reference and cites correctly | Tune the compact prompt; measure with evals |
 | **The model occasionally shortens long reference ids** (`amzn-332` for `amzn-annual-report-10k-332`): in the eval those citations count as invalid (the smoke gate failed once in three runs on Day 16, once in four on Day 13); in the graph they are dropped | Medium | Intermittent; grounding drops them rather than trusting them | Short per-prompt labels (`[E1]`, `[E2]` …) mapped back to chunk ids in Python |
 | The writer occasionally still adds a section saying news is unavailable | Low | `data_gaps` records it reliably anyway | Prompt tuning |
@@ -91,7 +91,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 
 | Limitation | Impact | Why accepted | Removed by |
 |---|---|---|---|
-| In-cluster Postgres has no backups or HA; Redis has no persistence, so a Redis restart loses queued (not yet running) tasks | Medium | Demo environments only; production values point at managed services | Managed Postgres/Redis (Day 18) |
+| In-cluster Postgres has no backups or HA; Redis has no persistence, so a Redis restart loses queued (not yet running) tasks | Medium | Demo environments only; production values point at managed services | Managed services, as the Azure deployment does for Postgres |
 | On first start the worker restarts until Postgres accepts connections (no start order in Kubernetes) | Low | Seconds; restarts are Kubernetes' retry | An init container waiting for Postgres |
 | No Ingress on kind (no controller); local runs use port-forward | Low | The sign-in redirect is `localhost:8501` anyway; the Ingress template is linted with production values | An ingress controller in the kind setup |
 | The UI must run one replica (a sign-in in progress is held in its process) | Low | Demo client | A shared session store |
@@ -106,6 +106,7 @@ reasoning behind the decisions is in [DECISIONS.md](DECISIONS.md).
 | "Allow Azure services" admits any Azure-hosted client to the Postgres firewall (auth still required) | Low | Container Apps' outbound IPs aren't fixed without a VNet | The private endpoint above |
 | The api scales to zero: the first request after idle waits for a cold start (~10–20 s) | Low | Saves cost; the UI keeps polling | `minReplicas: 1` for the api |
 | The worker has no health probe in Azure (Container Apps has no exec probes; it has no port) | Low | The platform restarts it if it exits; a hung loop isn't detected | A tiny HTTP health endpoint in the worker |
+| Redis runs as a container without persistence: a restart loses queued (not yet running) tasks; running jobs are recovered from Postgres | Low | One queue, a few jobs at a time; re-submitting is safe | Azure Managed Redis, or a volume with AOF persistence |
 | ACR Tasks (`az acr build`) is blocked on this subscription, so images are built locally (amd64 under emulation, slow) or on the pipeline agent | Low | Works; only slower locally | An Azure support request to enable ACR Tasks |
 
 ## Resolved

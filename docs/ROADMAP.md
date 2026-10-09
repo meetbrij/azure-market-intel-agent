@@ -1,6 +1,7 @@
 # Roadmap
 
-The four items below were deferred on purpose in the Phase 3 spec: they're
+The four items below were deferred on purpose in the
+[Phase 3 spec](archive/PHASE3_SPEC.md): they're
 increments to the system, not gaps in it. Each has an intended approach. The
 smaller known gaps are in [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
 
